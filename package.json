@@ -1,0 +1,27 @@
+{
+  "name": "loopcode",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "",
+  "dependencies": {
+    "@opencode-ai/sdk": "^1.17.13",
+    "@types/node": "^26.1.0",
+    "better-sqlite3": "^12.11.1",
+    "commander": "^15.0.0",
+    "smol-toml": "^1.7.0",
+    "tsx": "^4.22.4",
+    "typescript": "^6.0.3"
+  },
+  "type": "module",
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
+    "vitest": "^3.2.6"
+  }
+}
