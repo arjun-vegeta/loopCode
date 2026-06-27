@@ -1,6 +1,6 @@
-import { createOpencode, OpencodeClient } from "@opencode-ai/sdk";
-import type { Task, TaskResult } from "./types.js";
-import { Router } from "./router.js";
+import { createOpencode, OpencodeClient } from '@opencode-ai/sdk';
+import type { Task, TaskResult } from './types.js';
+import { Router } from './router.js';
 
 export class OpencodeOrchestrator {
   public client: OpencodeClient;
@@ -15,7 +15,7 @@ export class OpencodeOrchestrator {
 
   static async initialize(router?: Router): Promise<OpencodeOrchestrator> {
     const { client, server } = await createOpencode();
-    
+
     const orchestrator = new OpencodeOrchestrator(client, () => server.close(), router);
     await orchestrator.checkAuth();
     return orchestrator;
@@ -29,34 +29,37 @@ export class OpencodeOrchestrator {
 
     // A simple heuristic: if no defaults are set, the user likely hasn't configured any API keys.
     const hasDefaults = config.default && Object.keys(config.default).length > 0;
-    
+
     // We check if there are any configured/ready providers
-    const hasReadyProviders = config.providers && config.providers.some((p: any) => p.state === "ready" || p.configured);
+    const hasReadyProviders =
+      config.providers && config.providers.some((p: any) => p.state === 'ready' || p.configured);
 
     if (!hasDefaults && !hasReadyProviders) {
-      throw new Error("No LLM provider configured. Please run `opencode auth login` or configure your `~/.opencode/opencode.json`.");
+      throw new Error(
+        'No LLM provider configured. Please run `opencode auth login` or configure your `~/.opencode/opencode.json`.',
+      );
     }
   }
 
   async executeTask(task: Task): Promise<TaskResult> {
     const { data: session, error: createError } = await this.client.session.create({
-      body: { title: `LoopCode Task: ${task.description}` }
+      body: { title: `LoopCode Task: ${task.description}` },
     });
 
     if (!session || createError) {
-      throw new Error("Failed to create OpenCode session: " + JSON.stringify(createError));
+      throw new Error('Failed to create OpenCode session: ' + JSON.stringify(createError));
     }
 
     const sessionId = session.id;
 
     // Start streaming events in the background for transparency
     const { stream } = await this.client.event.subscribe();
-    
+
     // Asynchronous loop to print tool calls
     const streamPromise = (async () => {
       try {
         for await (const event of stream) {
-          if ((event as any).type === "tool_call" || (event as any).event === "tool_call") {
+          if ((event as any).type === 'tool_call' || (event as any).event === 'tool_call') {
             // Simplified rendering of tool events
             console.log(`[Tool] ${JSON.stringify((event as any).data || (event as any).properties || event)}`);
           }
@@ -70,8 +73,8 @@ export class OpencodeOrchestrator {
     const fullPrompt = `${task.systemPrompt}\n\nTask Goal:\n${task.goal}`;
 
     // Setup Timeout
-    let abortController = new AbortController();
-    
+    const abortController = new AbortController();
+
     const timeoutPromise = new Promise<never>((_, reject) => {
       setTimeout(() => {
         abortController.abort();
@@ -85,37 +88,34 @@ export class OpencodeOrchestrator {
       const promptPromise = this.client.session.prompt({
         path: { id: sessionId },
         body: {
-          parts: [{ type: "text", text: fullPrompt }],
-          model: modelRoute
+          parts: [{ type: 'text', text: fullPrompt }],
+          model: modelRoute,
         },
-        signal: abortController.signal
+        signal: abortController.signal,
       });
 
-      const { data: result, error: promptError } = await Promise.race([
-        promptPromise,
-        timeoutPromise
-      ]);
+      const { data: result, error: promptError } = await Promise.race([promptPromise, timeoutPromise]);
 
       if (promptError) {
-        throw new Error("Prompt error: " + JSON.stringify(promptError));
+        throw new Error('Prompt error: ' + JSON.stringify(promptError));
       }
 
       return {
         success: true,
-        message: (result?.info as any)?.text
+        message: (result?.info as any)?.text,
       };
     } catch (error: any) {
       // If it timed out, try to gracefully abort the session on the server
-      if (error.message.includes("timed out")) {
+      if (error.message.includes('timed out')) {
         try {
           await this.client.session.abort({ path: { id: sessionId } });
         } catch (abortErr) {
-          console.error("Failed to abort session on server:", abortErr);
+          console.error('Failed to abort session on server:', abortErr);
         }
       }
       return {
         success: false,
-        message: error.message || String(error)
+        message: error.message || String(error),
       };
     }
   }

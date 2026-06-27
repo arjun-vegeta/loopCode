@@ -17,7 +17,7 @@ export class Planner {
   async planGoal(goal: string, projectContext: string = ''): Promise<Task[]> {
     // Generate a temporary session to execute the planning prompt
     const { data: session, error: createError } = await this.client.session.create({
-      body: { title: 'Planning Session' }
+      body: { title: 'Planning Session' },
     });
 
     if (createError || !session) {
@@ -46,39 +46,60 @@ Rules:
 
     // Define the schema for the tasks array
     const taskSchema = {
-      type: "object",
+      type: 'object',
       properties: {
         tasks: {
-          type: "array",
+          type: 'array',
           items: {
-            type: "object",
+            type: 'object',
             properties: {
-              description: { type: "string", description: "Human-readable task description." },
-              goal: { type: "string", description: "Goal/instruction for this specific task." },
-              category: { type: "string", enum: ["test", "docs", "security", "refactor", "feature", "fix", "other"], description: "Category of the task." },
-              systemPrompt: { type: "string", description: "System guidelines/context to prepend to the executor agent." },
-              expectedOutputs: { type: "array", items: { type: "string" }, description: "Files created or modified." },
-              writeAllowlist: { type: "array", items: { type: "string" }, description: "Files this task is permitted to modify." },
-              verification: {
-                type: "array",
-                items: {
-                  type: "object",
-                  properties: {
-                    type: { type: "string", enum: ["compile", "test", "lint"] },
-                    command: { type: "string" },
-                    expectedExitCode: { type: "integer" }
-                  },
-                  required: ["type", "command", "expectedExitCode"]
-                }
+              description: { type: 'string', description: 'Human-readable task description.' },
+              goal: { type: 'string', description: 'Goal/instruction for this specific task.' },
+              category: {
+                type: 'string',
+                enum: ['test', 'docs', 'security', 'refactor', 'feature', 'fix', 'other'],
+                description: 'Category of the task.',
               },
-              maxCost: { type: "number", description: "Maximum budget in USD, e.g. 2.00" },
-              timeout: { type: "integer", description: "Timeout in seconds, e.g. 300" }
+              systemPrompt: {
+                type: 'string',
+                description: 'System guidelines/context to prepend to the executor agent.',
+              },
+              expectedOutputs: { type: 'array', items: { type: 'string' }, description: 'Files created or modified.' },
+              writeAllowlist: {
+                type: 'array',
+                items: { type: 'string' },
+                description: 'Files this task is permitted to modify.',
+              },
+              verification: {
+                type: 'array',
+                items: {
+                  type: 'object',
+                  properties: {
+                    type: { type: 'string', enum: ['compile', 'test', 'lint'] },
+                    command: { type: 'string' },
+                    expectedExitCode: { type: 'integer' },
+                  },
+                  required: ['type', 'command', 'expectedExitCode'],
+                },
+              },
+              maxCost: { type: 'number', description: 'Maximum budget in USD, e.g. 2.00' },
+              timeout: { type: 'integer', description: 'Timeout in seconds, e.g. 300' },
             },
-            required: ["description", "goal", "category", "systemPrompt", "expectedOutputs", "writeAllowlist", "verification", "maxCost", "timeout"]
-          }
-        }
+            required: [
+              'description',
+              'goal',
+              'category',
+              'systemPrompt',
+              'expectedOutputs',
+              'writeAllowlist',
+              'verification',
+              'maxCost',
+              'timeout',
+            ],
+          },
+        },
       },
-      required: ["tasks"]
+      required: ['tasks'],
     };
 
     try {
@@ -89,9 +110,9 @@ Rules:
           parts: [{ type: 'text', text: planningPrompt }],
           format: {
             type: 'json_schema',
-            schema: taskSchema
-          }
-        } as any
+            schema: taskSchema,
+          },
+        } as any,
       });
 
       if (promptError || !result) {
@@ -116,7 +137,7 @@ Rules:
         writeAllowlist: t.writeAllowlist,
         verification: t.verification,
         maxCost: t.maxCost,
-        timeout: t.timeout
+        timeout: t.timeout,
       }));
 
       return tasks;

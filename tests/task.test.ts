@@ -15,7 +15,7 @@ describe('validatePlan', () => {
         writeAllowlist: ['src/config.json'],
         verification: [],
         maxCost: 1.0,
-        timeout: 100
+        timeout: 100,
       },
       {
         id: '2',
@@ -27,8 +27,8 @@ describe('validatePlan', () => {
         writeAllowlist: ['src/config.json'],
         verification: [],
         maxCost: 1.0,
-        timeout: 100
-      }
+        timeout: 100,
+      },
     ];
 
     const result = validatePlan(tasks);
@@ -49,8 +49,8 @@ describe('validatePlan', () => {
         writeAllowlist: [],
         verification: [],
         maxCost: 1.0,
-        timeout: 100
-      }
+        timeout: 100,
+      },
     ];
 
     const result = validatePlan(tasks);
