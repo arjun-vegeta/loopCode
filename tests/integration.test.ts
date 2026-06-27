@@ -23,15 +23,15 @@ vi.mock('../src/planner.js', () => {
               {
                 type: 'compile',
                 command: 'node tests/fixtures/verify.cjs',
-                expectedExitCode: 0
-              }
+                expectedExitCode: 0,
+              },
             ],
             maxCost: 1.0,
-            timeout: 10
-          }
-        ])
+            timeout: 10,
+          },
+        ]),
       };
-    })
+    }),
   };
 });
 
@@ -86,18 +86,18 @@ describe('LoopCode Integration Flow', () => {
         providers: vi.fn().mockResolvedValue({
           data: {
             default: { model: 'anthropic/claude' },
-            providers: [{ state: 'ready' }]
-          }
-        })
+            providers: [{ state: 'ready' }],
+          },
+        }),
       },
       session: {
         create: vi.fn().mockResolvedValue({ data: { id: 'test-session' } }),
         prompt: vi.fn().mockResolvedValue({ data: { info: { text: 'Done' } } }),
-        abort: vi.fn()
+        abort: vi.fn(),
       },
       event: {
-        subscribe: vi.fn().mockResolvedValue({ stream: [] })
-      }
+        subscribe: vi.fn().mockResolvedValue({ stream: [] }),
+      },
     };
 
     const mockOpencode = {
@@ -106,7 +106,7 @@ describe('LoopCode Integration Flow', () => {
         // Mocking the agent file edit operation
         fs.writeFileSync(OUTPUT_FILE, 'SUCCESS', 'utf8');
         return { success: true, message: 'Wrote output file' };
-      })
+      }),
     };
 
     const orchestrator = new Orchestrator(mockOpencode as any, TEST_DB);
@@ -119,7 +119,7 @@ describe('LoopCode Integration Flow', () => {
 
     const results = memory.getTaskResults(allTasks[0].id);
     expect(results.length).toBe(1);
-    
+
     const verificationReport = JSON.parse(results[0].verification_json);
     if (!verificationReport.overallPass) {
       console.log('=== VERIFICATION FAILED IN TEST ===');
