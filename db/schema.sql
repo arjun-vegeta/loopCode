@@ -39,3 +39,94 @@ CREATE TABLE IF NOT EXISTS file_index (
   last_modified DATETIME,
   symbols_json TEXT         -- Array of {name, type, line}
 );
+
+-- --- Memory Engine v2 Layers ---
+
+-- Model performance logs (for dynamic router)
+CREATE TABLE IF NOT EXISTS model_performance (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  model TEXT NOT NULL,
+  task_type TEXT NOT NULL,
+  task_complexity INTEGER NOT NULL,
+  success BOOLEAN NOT NULL,
+  cost REAL NOT NULL,
+  duration_ms INTEGER NOT NULL,
+  retry_count INTEGER DEFAULT 0,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Ephemeral working memory (session-scoped)
+CREATE TABLE IF NOT EXISTS working_memory (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  task_id TEXT NOT NULL REFERENCES tasks(id),
+  key TEXT NOT NULL,
+  value TEXT NOT NULL,
+  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Task memory (append-only log outputs)
+CREATE TABLE IF NOT EXISTS task_memory (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  task_id TEXT NOT NULL REFERENCES tasks(id),
+  log_text TEXT NOT NULL,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Project memory (lessons learned, conventions)
+CREATE TABLE IF NOT EXISTS project_memory (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  category TEXT NOT NULL,        -- 'convention', 'pattern', 'lesson', 'api'
+  key TEXT NOT NULL,
+  value TEXT NOT NULL,
+  source_task_id TEXT,
+  confidence REAL DEFAULT 1.0,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Code Graph (structural navigation)
+CREATE TABLE IF NOT EXISTS code_graph (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  symbol_name TEXT NOT NULL,
+  symbol_type TEXT NOT NULL,     -- 'function', 'class', 'interface', 'variable', etc.
+  file_path TEXT NOT NULL,
+  line_start INTEGER NOT NULL,
+  line_end INTEGER NOT NULL,
+  signature TEXT,
+  docstring TEXT,
+  parent_id INTEGER REFERENCES code_graph(id)
+);
+
+-- Local Semantic Cache & Prompt cache
+CREATE TABLE IF NOT EXISTS cache_entries (
+  id TEXT PRIMARY KEY,
+  query_embedding BLOB NOT NULL,   -- Serialized Float32Array
+  response TEXT NOT NULL,
+  model TEXT NOT NULL,
+  cost REAL NOT NULL,
+  similarity_threshold REAL DEFAULT 0.92,
+  ttl_seconds INTEGER DEFAULT 86400,
+  hit_count INTEGER DEFAULT 0,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Goal memory (solutions, patterns)
+CREATE TABLE IF NOT EXISTS goal_memory (
+  id TEXT PRIMARY KEY,
+  goal TEXT NOT NULL,
+  plan_json TEXT NOT NULL,
+  status TEXT NOT NULL,          -- 'success', 'failed'
+  cost REAL NOT NULL,
+  duration_ms INTEGER NOT NULL,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Code embeddings (vector table fallback)
+CREATE TABLE IF NOT EXISTS code_embeddings (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  path TEXT NOT NULL,
+  content_type TEXT NOT NULL,    -- 'function', 'class', 'comment', 'doc'
+  symbol_name TEXT NOT NULL,
+  line_start INTEGER NOT NULL,
+  line_end INTEGER NOT NULL,
+  embedding BLOB NOT NULL
+);
