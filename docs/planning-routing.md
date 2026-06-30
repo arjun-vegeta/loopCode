@@ -1,14 +1,22 @@
-# Planning, Task Contracts, & Routing
+# Goal Classification, Planning & Routing
 
-LoopCode coordinates execution through structured plans, validation, and static model routing rules.
+LoopCode coordinates execution through goal classification, structured plans, and dynamic cascading model routing rules.
+
+## Smart Classification
+
+Before planning, the goal is classified using the `Classifier` engine:
+
+- **Tier 1: Rule-based fast regex filter** (e.g. documentation updates, version updates, single variable renames).
+- **Tier 2: Complexity heuristics** (number of files affected, keywords like `optimize` or `refactor`).
+- **Paths**:
+  - **Single-Agent Path**: Bypasses full planning and spawns a single agent session.
+  - **Full-Loop Path**: Performs full multi-agent code graph planning, execution, and verification.
+
+---
 
 ## Structured Goal Planning
 
-Goal decomposition is performed by querying a strong model via OpenCode and requesting a strictly-typed JSON schema using OpenCode's structured output parser.
-
-### Prompt Strategy
-
-The planner prompt provides overall constraints and requests a list of sequential tasks matching our schema. We define a JSON schema matching the following TS `Task` interface:
+For full-loop goals, the `PlannerAgent` decomposes the goal into a Directed Acyclic Graph (DAG) of task contracts. The tasks match the TS `Task` interface:
 
 ```typescript
 export interface Task {
@@ -22,34 +30,24 @@ export interface Task {
   verification: VerificationStep[];
   maxCost: number;
   timeout: number;
-  model?: string; // Optional override
+  model?: string; // Optional static override
 }
 ```
 
 ---
 
-## Plan Validation & Write Allowlists
+## Dynamic Cascading Model Router
 
-Before executing the generated task plan, the orchestrator validates it using `validatePlan`:
+Instead of static routes, the `DynamicRouter` evaluates the optimal 2026 model based on four cascading tiers:
 
-- **Timeout and Budget Bounds**: Standard default fallbacks are applied if values are invalid.
-- **Write Conflict Analysis**: Checks if multiple sequential tasks write to the same file.
+| Tier       | Rule Type             | Action                                                                                                                                         |
+| ---------- | --------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Tier 1** | Task Category         | Routes `refactor` and `security` to high-reasoning frontier models (`claude-4.8-opus`), and `docs`/`test` to fast models (`gemini-3.5-flash`). |
+| **Tier 2** | Complexity Classifier | Overrides model selections to stronger models if code change spans multiple modules.                                                           |
+| **Tier 3** | Budget Cap            | Downgrades selected models to cheaper alternatives if current goal spend is approaching the limit.                                             |
+| **Tier 4** | Cache Awareness       | Adjusts routing to benefit from prompt-caching models when the input context remains stable.                                                   |
 
-### Sequential Tolerance (Step 2.1 Fix)
+### Supported 2026 Portfolio
 
-Unlike parallel multi-agent platforms, LoopCode v1 runs tasks strictly sequentially. This means that two tasks writing to the same file does not cause a merge conflict; rather, it is a valid incremental change (e.g. task 1 creates a file, task 2 imports code into it).
-
-- **Behavior**: `validatePlan` logs a non-blocking warning informing you of sequential same-file edits, but does **not** reject the plan.
-
----
-
-## Category-Based Routing (Step 2.3 Fix)
-
-Instead of fragile free-text keyword matching (like searching for substrings in a task's description), the planner outputs a structured `category` field. LoopCode routes tasks to models based on these categories:
-
-| Category               | Routed Model                          | Rationale                                                                           |
-| ---------------------- | ------------------------------------- | ----------------------------------------------------------------------------------- |
-| `test`, `docs`         | `claude-5-sonnet`                     | Fast, cost-efficient, standard reasoning.                                           |
-| `security`, `refactor` | `claude-4.8-opus`                     | High reasoning strength, conservative logic.                                        |
-| `feature`, `fix`       | `claude-5-sonnet` / `claude-4.8-opus` | Routes to Opus if `expectedOutputs.length > 2` (complex changes), otherwise Sonnet. |
-| Other                  | Default config model                  | Configurable.                                                                       |
+- **Frontier / Strong**: `claude-4.8-opus`, `claude-5-sonnet`
+- **Efficient / Budget**: `gemini-3.5-flash`, `deepseek-v4-pro`
