@@ -69,6 +69,22 @@ export class Memory {
           last_modified DATETIME,
           symbols_json TEXT
         );
+        CREATE TABLE IF NOT EXISTS task_plans (
+          task_id TEXT PRIMARY KEY,
+          goal_id TEXT NOT NULL,
+          plan_json TEXT NOT NULL,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE TABLE IF NOT EXISTS task_executions (
+          task_id TEXT PRIMARY KEY,
+          execution_json TEXT NOT NULL,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE TABLE IF NOT EXISTS task_reviews (
+          task_id TEXT PRIMARY KEY,
+          review_json TEXT NOT NULL,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
       `);
     }
   }
@@ -94,7 +110,7 @@ export class Memory {
     this.logStateTransition(id, state, { state, ...extraJson });
   }
 
-  updateTaskPlan(id: string, plan: Task[]) {
+  updateTaskPlan(id: string, plan: any[]) {
     const planJson = JSON.stringify(plan);
     const stmt = this.db.prepare(`
       UPDATE tasks
