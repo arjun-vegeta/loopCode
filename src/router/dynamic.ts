@@ -1,5 +1,4 @@
 import type { TaskNode, Budget } from '../ir/task.js';
-import { ModelPortfolio, type ModelSpec } from './portfolio.js';
 import Database from 'better-sqlite3';
 
 export interface ModelSelection {
