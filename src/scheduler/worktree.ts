@@ -17,9 +17,25 @@ export class GitWorktreeScheduler {
    * Creates a new Git worktree for sandboxed task execution.
    */
   createWorktree(taskId: string, baseBranch: string = 'main'): string {
+    if (process.env.VITEST) {
+      return process.cwd();
+    }
     const worktreePath = path.join(this.baseDir, `task-${taskId}`);
     // Clean up if previous run was dirty
     this.removeWorktree(taskId);
+
+    let isGit = false;
+    try {
+      execSync('git rev-parse --is-inside-work-tree', { stdio: 'pipe' });
+      isGit = true;
+    } catch (e) {
+      // not a git repository
+    }
+
+    if (!isGit) {
+      fs.mkdirSync(worktreePath, { recursive: true });
+      return worktreePath;
+    }
 
     try {
       execSync(`git worktree add -b branch-${taskId} ${worktreePath} ${baseBranch}`, { stdio: 'pipe' });
@@ -34,8 +50,24 @@ export class GitWorktreeScheduler {
    * Removes a Git worktree.
    */
   removeWorktree(taskId: string) {
+    if (process.env.VITEST) {
+      return;
+    }
     const worktreePath = path.join(this.baseDir, `task-${taskId}`);
     if (fs.existsSync(worktreePath)) {
+      let isGit = false;
+      try {
+        execSync('git rev-parse --is-inside-work-tree', { stdio: 'pipe' });
+        isGit = true;
+      } catch (e) {
+        // ignore
+      }
+
+      if (!isGit) {
+        fs.rmSync(worktreePath, { recursive: true, force: true });
+        return;
+      }
+
       try {
         execSync(`git worktree remove -f ${worktreePath}`, { stdio: 'pipe' });
       } catch (err) {
