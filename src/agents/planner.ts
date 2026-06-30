@@ -2,6 +2,7 @@ import type { OpencodeClient } from '@opencode-ai/sdk';
 import type { GoalIR } from '../ir/goal.js';
 import type { TaskIR } from '../ir/task.js';
 import { IRValidator } from '../ir/validator.js';
+import { MemoryEngine } from '../memory/engine.js';
 import * as crypto from 'node:crypto';
 
 export class PlannerAgent {
@@ -16,7 +17,7 @@ export class PlannerAgent {
   /**
    * Decomposes the Goal IR into a structured Task IR.
    */
-  async planGoal(goalIR: GoalIR, projectContext: string = ''): Promise<TaskIR> {
+  async planGoal(goalIR: GoalIR, projectContext: string = '', failureContext?: string): Promise<TaskIR> {
     const { data: session, error: createError } = await this.client.session.create({
       body: { title: `Planning Session: ${goalIR.id}` },
     });
@@ -36,7 +37,7 @@ ${JSON.stringify(goalIR, null, 2)}
 
 Project context/files available:
 ${projectContext}
-
+${failureContext ? `\nPREVIOUS ATTEMPT FAILURE CONTEXT:\nThe previous execution failed with the following errors. Please adjust your plan to avoid these issues:\n${failureContext}\n` : ''}
 Rules:
 1. Tasks must run sequentially. Order them logically.
 2. Each task must have concrete verification steps (compile, test, lint, security, review).
@@ -191,6 +192,10 @@ Rules:
 
       // Perform IR validation check before returning
       IRValidator.validateGoalToTask(goalIR, taskIR);
+
+      // Write to shared memory (V2)
+      const memoryEngine = new MemoryEngine();
+      memoryEngine.saveTaskPlan(taskIR.id, goalIR.id, JSON.stringify(taskIR));
 
       return taskIR;
     } finally {
