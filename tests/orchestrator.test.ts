@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { Orchestrator } from '../src/orchestrator.js';
 import { Memory } from '../src/memory.js';
 import { OpencodeOrchestrator } from '../src/opencode.js';
@@ -53,13 +53,32 @@ vi.mock('../src/verifier.js', () => {
 describe('Orchestrator State Machine & Persistence', () => {
   const TEST_DB = 'test_loopcode.db';
   let mockOpencode: any;
+  let activeOrchestrators: Orchestrator[] = [];
 
   beforeEach(() => {
     vi.clearAllMocks();
+    activeOrchestrators = [];
     if (fs.existsSync(TEST_DB)) {
       fs.unlinkSync(TEST_DB);
     }
     mockOpencode = new (OpencodeOrchestrator as any)();
+  });
+
+  afterEach(() => {
+    for (const o of activeOrchestrators) {
+      try {
+        o.close();
+      } catch (err) {
+        // ignore
+      }
+    }
+    if (fs.existsSync(TEST_DB)) {
+      try {
+        fs.unlinkSync(TEST_DB);
+      } catch (err) {
+        // ignore
+      }
+    }
   });
 
   it('runs the goal and transitions planning -> executing -> verifying -> done on success', async () => {
@@ -72,6 +91,7 @@ describe('Orchestrator State Machine & Persistence', () => {
     });
 
     const orchestrator = new Orchestrator(mockOpencode, TEST_DB);
+    activeOrchestrators.push(orchestrator);
     await orchestrator.runGoal('Mock Goal');
 
     const memory = new Memory(TEST_DB);
@@ -96,6 +116,7 @@ describe('Orchestrator State Machine & Persistence', () => {
     });
 
     const orchestrator = new Orchestrator(mockOpencode, TEST_DB);
+    activeOrchestrators.push(orchestrator);
 
     // We expect it to cycle through execution and retry until MAX_RETRIES.
     // However, on exceeding retries, it transitions back to 'planning' and loop would continue.
@@ -148,6 +169,7 @@ describe('Orchestrator State Machine & Persistence', () => {
 
     // To prevent an infinite planning-executing loop, we stub the planning state in memory after it transitions
     const orchestrator = new Orchestrator(mockOpencode, TEST_DB);
+    activeOrchestrators.push(orchestrator);
 
     // Intercept planning execution by throwing to check if it entered planning again
     let planningCount = 0;
@@ -184,18 +206,20 @@ describe('Orchestrator State Machine & Persistence', () => {
 
     // Mock the plan so there is something to execute
     const plan = [
-      {
-        id: crypto.randomUUID(),
-        description: 'Mocked task to execute on resume',
-        goal: 'Resume Goal',
-        category: 'feature' as const,
-        systemPrompt: '',
-        expectedOutputs: [],
-        writeAllowlist: [],
-        verification: [],
-        maxCost: 1,
-        timeout: 100,
-      },
+      [
+        {
+          id: crypto.randomUUID(),
+          description: 'Mocked task to execute on resume',
+          goal: 'Resume Goal',
+          category: 'feature' as const,
+          systemPrompt: '',
+          expectedOutputs: [],
+          writeAllowlist: [],
+          verification: [],
+          maxCost: 1,
+          timeout: 100,
+        },
+      ]
     ];
     memory.updateTaskPlan(taskId, plan);
     memory.close();
@@ -210,6 +234,7 @@ describe('Orchestrator State Machine & Persistence', () => {
 
     // Start a new orchestrator pointing to the same DB
     const orchestrator = new Orchestrator(mockOpencode, TEST_DB);
+    activeOrchestrators.push(orchestrator);
     await orchestrator.resumeTask(taskId);
 
     const checkMemory = new Memory(TEST_DB);
