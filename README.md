@@ -1,17 +1,17 @@
-# LoopCode v1
+# LoopCode v2
 
-LoopCode v1 is an autonomous CLI orchestrator that drives **OpenCode** sessions to implement software engineering goals. LoopCode is not a coding agent itself—OpenCode is the runtime coding agent. LoopCode acts as the planner, state machine, and verifier that guides OpenCode through executing complex, multi-task goals.
+LoopCode v2 is an autonomous software engineering orchestrator built on top of **OpenCode**. LoopCode acts as the planning, state machine, and verification layer that guides OpenCode through executing complex, multi-task software goals.
 
 > **Disclaimer:** This project is not affiliated with, sponsored by, or endorsed by the OpenCode/Anomaly team.
 
-## Key Features
+## Key Features in v2
 
-1. **Local-First & Ephemeral**: Runs entirely on your local machine using an ephemeral local OpenCode server instance.
-2. **Sequential Execution**: Avoids parallel git merge conflicts by executing tasks one at a time.
-3. **Robust State Machine**: Preserves all progress and logs state transitions in SQLite. If LoopCode crashes or is killed, it can resume from the last known state.
-4. **3-Layer Verification**: Checks outputs using local tools (compilation, unit testing, and linting) rather than relying on LLM self-assessment.
-5. **Category-Based Model Routing**: Dynamically maps task goals to the most cost-effective model based on structured task categories.
-6. **Hard Timeouts**: Automatically aborts runaway tasks using strict timeouts.
+1. **Smart Goal Classification**: Bypasses full planning overhead for simple changes (e.g. typos, simple doc edits) by fast-tracking them to a Single-Agent path, saving significant token costs.
+2. **Git Worktree Scheduling**: Spawns sandboxed environments in `.loopcode/worktrees/task-{id}` allowing multi-agent tasks to run concurrently without local file corruption or merge conflicts.
+3. **Dynamic Cascading Model Router**: Maps tasks to the optimal 2026 models (Claude Fable, Gemini 3.5, Opus 4.8) based on complexity overrides, budget caps, and cache-hit adjustments.
+4. **Hierarchical Context Compression**: Automatically removes whitespace and JS/TS comments (Level 1 summarization) to minimize token consumption on large files.
+5. **Cost & Budget Limits**: Enforces Monthly ➔ Goal ➔ Task spend caps, logs detailed usage, and terminates the orchestrator with **exit code 77** if limits are breached.
+6. **Loop/Oscillation Prevention**: Hashes state signatures (phase, task index, modified files, and retry attempts) to detect and abort infinite loops.
 
 ## CLI Usage
 
@@ -52,6 +52,25 @@ LoopCode checks for overrides in `~/.loopcode/config.toml`:
 default = "anthropic/claude-5-sonnet"
 planning = "anthropic/claude-4.8-opus"
 verification = "anthropic/claude-5-sonnet"
+
+[budget]
+maxCostUsd = 10.0
+maxTokens = 50000
+```
+
+## Running Tests
+
+Run all unit and integration test suites:
+
+```bash
+npm run test
+```
+
+For linting and styling check:
+
+```bash
+npm run lint
+npm run format:check
 ```
 
 ## License
