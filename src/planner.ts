@@ -14,7 +14,7 @@ export class Planner {
   /**
    * Plans a goal by calling OpenCode to decompose it into sequential tasks.
    */
-  async planGoal(goal: string, projectContext: string = ''): Promise<Task[]> {
+  async planGoal(goal: string, projectContext: string = '', failureContext?: string): Promise<Task[]> {
     // Generate a temporary session to execute the planning prompt
     const { data: session, error: createError } = await this.client.session.create({
       body: { title: 'Planning Session' },
@@ -35,7 +35,7 @@ Goal:
 
 Project context/files available:
 ${projectContext}
-
+${failureContext ? `\nPREVIOUS ATTEMPT FAILURE CONTEXT:\nThe previous execution failed with the following errors. Please adjust your plan to avoid these issues:\n${failureContext}\n` : ''}
 Rules:
 1. Tasks must run sequentially. Order them logically (e.g. create files before editing, edit dependencies before dependents).
 2. Each task must have concrete verification steps (compile, test, lint).
