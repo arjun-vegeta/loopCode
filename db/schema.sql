@@ -130,3 +130,23 @@ CREATE TABLE IF NOT EXISTS code_embeddings (
   line_end INTEGER NOT NULL,
   embedding BLOB NOT NULL
 );
+
+-- Shared Agent Memory (V2)
+CREATE TABLE IF NOT EXISTS task_plans (
+  task_id TEXT PRIMARY KEY,
+  goal_id TEXT NOT NULL,
+  plan_json TEXT NOT NULL,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS task_executions (
+  task_id TEXT PRIMARY KEY,
+  execution_json TEXT NOT NULL,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS task_reviews (
+  task_id TEXT PRIMARY KEY,
+  review_json TEXT NOT NULL,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
