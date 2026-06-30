@@ -1,6 +1,7 @@
 import type { OpencodeClient } from '@opencode-ai/sdk';
 import type { TaskNode } from '../ir/task.js';
 import type { ExecutionIR, ExecutionStep } from '../ir/execution.js';
+import { MemoryEngine } from '../memory/engine.js';
 import { execSync } from 'child_process';
 import * as crypto from 'node:crypto';
 
@@ -103,27 +104,31 @@ Please complete the task. Only write within your allowlist: ${taskNode.writeAllo
 
       // Get git commit hash after execution
       let commitAfter = commitBefore;
-      try {
-        // Create an incremental commit representing the engineer modifications
-        const statusOutput = execSync('git status --porcelain', { cwd: worktreePath || process.cwd() })
-          .toString()
-          .trim();
-        if (statusOutput) {
-          execSync('git add -A', { cwd: worktreePath || process.cwd() });
-          execSync(`git commit -m "loopcode: implemented task ${taskNode.id}"`, { cwd: worktreePath || process.cwd() });
-          commitAfter = execSync('git rev-parse HEAD', { cwd: worktreePath || process.cwd() })
+      if (!process.env.VITEST) {
+        try {
+          // Create an incremental commit representing the engineer modifications
+          const statusOutput = execSync('git status --porcelain', { cwd: worktreePath || process.cwd() })
             .toString()
             .trim();
+          if (statusOutput) {
+            execSync('git add -A', { cwd: worktreePath || process.cwd() });
+            execSync(`git commit -m "loopcode: implemented task ${taskNode.id}"`, {
+              cwd: worktreePath || process.cwd(),
+            });
+            commitAfter = execSync('git rev-parse HEAD', { cwd: worktreePath || process.cwd() })
+              .toString()
+              .trim();
+          }
+        } catch (err) {
+          // Suppress git commit failure, maybe no changes were made or not in git repo
         }
-      } catch (err) {
-        // Suppress git commit failure, maybe no changes were made or not in git repo
       }
 
       const durationMs = Date.now() - startTime;
       // Approximate cost tracking fallback
       const cost = taskNode.budget.maxCostUsd * (durationMs / (timeoutSeconds * 1000)) * 0.1; // estimate fraction
 
-      return {
+      const execIR = {
         taskId: taskNode.id,
         sessionId,
         modelUsed: `${this.modelRoute.providerID}/${this.modelRoute.modelID}`,
@@ -137,6 +142,12 @@ Please complete the task. Only write within your allowlist: ${taskNode.writeAllo
           worktreePath,
         },
       };
+
+      // Write to shared memory (V2)
+      const memoryEngine = new MemoryEngine();
+      memoryEngine.saveTaskExecution(taskNode.id, JSON.stringify(execIR));
+
+      return execIR;
     } catch (error: any) {
       if (error.message.includes('timed out')) {
         try {
