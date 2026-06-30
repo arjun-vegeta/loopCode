@@ -1,5 +1,3 @@
-import type { GoalIR } from './ir/goal.js';
-
 export interface ProjectContext {
   estimatedFilesAffected?: number;
   recentChangesCount?: number;

@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import type { Task, VerificationReport, VerificationStep } from './types.js';
+import type { Task, VerificationReport } from './types.js';
 
 export class Verifier {
   /**

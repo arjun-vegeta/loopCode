@@ -40,7 +40,7 @@ describe('OpencodeOrchestrator', () => {
 
     // Create a prompt function that hangs forever
     const promptMock = vi.fn().mockImplementation(() => {
-      return new Promise((resolve) => {
+      return new Promise((_resolve) => {
         // Never resolves to simulate a hung provider
       });
     });

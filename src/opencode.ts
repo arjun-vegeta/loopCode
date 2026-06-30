@@ -56,7 +56,7 @@ export class OpencodeOrchestrator {
     const { stream } = await this.client.event.subscribe();
 
     // Asynchronous loop to print tool calls
-    const streamPromise = (async () => {
+    (async () => {
       try {
         for await (const event of stream) {
           if ((event as any).type === 'tool_call' || (event as any).event === 'tool_call') {
