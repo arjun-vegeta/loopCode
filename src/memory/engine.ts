@@ -27,10 +27,10 @@ export class MemoryEngine {
       db.prepare(
         `
         CREATE TABLE IF NOT EXISTS working_memory (
-          id TEXT PRIMARY KEY,
-          session_id TEXT NOT NULL,
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          task_id TEXT NOT NULL,
           key TEXT NOT NULL,
-          value_json TEXT,
+          value TEXT NOT NULL,
           updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
         )
       `,
@@ -40,12 +40,40 @@ export class MemoryEngine {
         `
         CREATE TABLE IF NOT EXISTS project_memory (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
-          conventions TEXT,
-          lessons TEXT,
+          category TEXT NOT NULL,
+          key TEXT NOT NULL,
+          value TEXT NOT NULL,
+          source_task_id TEXT,
+          confidence REAL DEFAULT 1.0,
           created_at DATETIME DEFAULT CURRENT_TIMESTAMP
         )
       `,
       ).run();
+
+      db.prepare(`
+        CREATE TABLE IF NOT EXISTS task_plans (
+          task_id TEXT PRIMARY KEY,
+          goal_id TEXT NOT NULL,
+          plan_json TEXT NOT NULL,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+      `).run();
+
+      db.prepare(`
+        CREATE TABLE IF NOT EXISTS task_executions (
+          task_id TEXT PRIMARY KEY,
+          execution_json TEXT NOT NULL,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+      `).run();
+
+      db.prepare(`
+        CREATE TABLE IF NOT EXISTS task_reviews (
+          task_id TEXT PRIMARY KEY,
+          review_json TEXT NOT NULL,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+      `).run();
     } finally {
       db.close();
     }
@@ -59,7 +87,7 @@ export class MemoryEngine {
     try {
       db.prepare(
         `
-        INSERT INTO model_performance (model, task_type, input_count, success, cost, duration_ms)
+        INSERT INTO model_performance (model, task_type, task_complexity, success, cost, duration_ms)
         VALUES (?, ?, ?, ?, ?, ?)
       `,
       ).run(
@@ -71,7 +99,7 @@ export class MemoryEngine {
         log.durationMs,
       );
     } catch (err) {
-      // fallback if table columns differ slightly
+      // fallback
     } finally {
       db.close();
     }
@@ -85,11 +113,11 @@ export class MemoryEngine {
     try {
       db.prepare(
         `
-        INSERT INTO cache_entries (prompt_hash, response_text, cost_saved)
-        VALUES (?, ?, ?)
-        ON CONFLICT(prompt_hash) DO UPDATE SET cost_saved = cost_saved + excluded.cost_saved
+        INSERT INTO cache_entries (id, query_embedding, response, model, cost)
+        VALUES (?, ?, ?, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET cost = cost + excluded.cost
       `,
-      ).run(promptHash, response, cost);
+      ).run(promptHash, Buffer.alloc(0), response, 'unknown', cost);
     } catch (err) {
       // ignore
     } finally {
@@ -103,8 +131,8 @@ export class MemoryEngine {
   getCache(promptHash: string): string | null {
     const db = this.getDb();
     try {
-      const row = db.prepare('SELECT response_text FROM cache_entries WHERE prompt_hash = ?').get(promptHash) as any;
-      return row?.response_text || null;
+      const row = db.prepare('SELECT response FROM cache_entries WHERE id = ?').get(promptHash) as any;
+      return row?.response || null;
     } catch (err) {
       return null;
     } finally {
@@ -118,12 +146,14 @@ export class MemoryEngine {
   addProjectLesson(conventions: string, lessons: string) {
     const db = this.getDb();
     try {
-      db.prepare(
-        `
-        INSERT INTO project_memory (conventions, lessons)
-        VALUES (?, ?)
-      `,
-      ).run(conventions, lessons);
+      if (conventions) {
+        db.prepare("INSERT INTO project_memory (category, key, value) VALUES ('convention', 'general', ?)").run(
+          conventions,
+        );
+      }
+      if (lessons) {
+        db.prepare("INSERT INTO project_memory (category, key, value) VALUES ('lesson', 'general', ?)").run(lessons);
+      }
     } finally {
       db.close();
     }
@@ -135,8 +165,87 @@ export class MemoryEngine {
   getConventions(): string[] {
     const db = this.getDb();
     try {
-      const rows = db.prepare('SELECT conventions FROM project_memory ORDER BY id DESC LIMIT 5').all() as any[];
-      return rows.map((r) => r.conventions).filter(Boolean);
+      const rows = db
+        .prepare("SELECT value FROM project_memory WHERE category = 'convention' ORDER BY id DESC LIMIT 5")
+        .all() as any[];
+      return rows.map((r) => r.value).filter(Boolean);
+    } finally {
+      db.close();
+    }
+  }
+
+  // --- Shared Memory Agent Communication ---
+
+  saveTaskPlan(taskId: string, goalId: string, planJson: string) {
+    const db = this.getDb();
+    try {
+      db.prepare(`
+        INSERT INTO task_plans (task_id, goal_id, plan_json)
+        VALUES (?, ?, ?)
+        ON CONFLICT(task_id) DO UPDATE SET plan_json = excluded.plan_json
+      `).run(taskId, goalId, planJson);
+    } finally {
+      db.close();
+    }
+  }
+
+  getTaskPlan(taskId: string): string | null {
+    const db = this.getDb();
+    try {
+      const row = db.prepare('SELECT plan_json FROM task_plans WHERE task_id = ?').get(taskId) as any;
+      return row?.plan_json || null;
+    } catch (err) {
+      return null;
+    } finally {
+      db.close();
+    }
+  }
+
+  saveTaskExecution(taskId: string, executionJson: string) {
+    const db = this.getDb();
+    try {
+      db.prepare(`
+        INSERT INTO task_executions (task_id, execution_json)
+        VALUES (?, ?)
+        ON CONFLICT(task_id) DO UPDATE SET execution_json = excluded.execution_json
+      `).run(taskId, executionJson);
+    } finally {
+      db.close();
+    }
+  }
+
+  getTaskExecution(taskId: string): string | null {
+    const db = this.getDb();
+    try {
+      const row = db.prepare('SELECT execution_json FROM task_executions WHERE task_id = ?').get(taskId) as any;
+      return row?.execution_json || null;
+    } catch (err) {
+      return null;
+    } finally {
+      db.close();
+    }
+  }
+
+  saveTaskReview(taskId: string, reviewJson: string) {
+    const db = this.getDb();
+    try {
+      db.prepare(`
+        INSERT INTO task_reviews (task_id, review_json)
+        VALUES (?, ?)
+        ON CONFLICT(task_id) DO UPDATE SET review_json = excluded.review_json
+      `).run(taskId, reviewJson);
+    } finally {
+      db.close();
+    }
+  }
+
+  getTaskReview(taskId: string): string | null {
+    const db = this.getDb();
+    try {
+      const row = db.prepare('SELECT review_json FROM task_reviews WHERE task_id = ?').get(taskId) as any;
+      return row?.review_json || null;
+    } catch (err) {
+      return null;
     } finally {
       db.close();
     }
