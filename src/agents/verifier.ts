@@ -1,26 +1,33 @@
 import type { TaskNode } from '../ir/task.js';
 import type { ExecutionIR } from '../ir/execution.js';
 import type { VerificationIR, VerificationLayer, Regression } from '../ir/verification.js';
-import { Verifier as LocalVerifier } from '../verifier.js';
 import { ReviewerAgent } from './reviewer.js';
+import { MemoryEngine } from '../memory/engine.js';
 import type { OpencodeClient } from '@opencode-ai/sdk';
 import { execSync } from 'child_process';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 
 export class VerifierAgent {
-  private localVerifier: LocalVerifier;
   private reviewerAgent: ReviewerAgent;
 
   constructor(client: OpencodeClient, modelRoute?: { providerID: string; modelID: string }) {
-    this.localVerifier = new LocalVerifier();
     this.reviewerAgent = new ReviewerAgent(client, modelRoute);
   }
 
   /**
    * Run the 5-layer verification pipeline on a completed task.
    */
-  async verifyTask(taskNode: TaskNode, execIR: ExecutionIR, testCoverageBefore: number = 100): Promise<VerificationIR> {
+  async verifyTask(taskNode: TaskNode, execIR?: ExecutionIR, testCoverageBefore: number = 100): Promise<VerificationIR> {
+    if (!execIR) {
+      const memory = new MemoryEngine();
+      const execJson = memory.getTaskExecution(taskNode.id);
+      if (!execJson) {
+        throw new Error('No execution IR found in shared memory for task ' + taskNode.id);
+      }
+      execIR = JSON.parse(execJson) as ExecutionIR;
+    }
+
     const layers: VerificationLayer[] = [];
     let overallPass = true;
     let retryHint = '';
@@ -71,14 +78,18 @@ export class VerifierAgent {
     let testEvidence = 'No unit tests run.';
 
     // Check if test script exists or requested
-    try {
-      const res = execSync('npm run test', { cwd: worktreePath }).toString();
-      testEvidence = res;
-    } catch (err: any) {
-      testPassed = false;
-      testEvidence = err.stdout?.toString() || err.stderr?.toString() || err.message;
-      overallPass = false;
-      retryHint = `Unit tests failed: ${testEvidence}`;
+    if (!process.env.VITEST) {
+      try {
+        const res = execSync('npm run test', { cwd: worktreePath }).toString();
+        testEvidence = res;
+      } catch (err: any) {
+        testPassed = false;
+        testEvidence = err.stdout?.toString() || err.stderr?.toString() || err.message;
+        overallPass = false;
+        retryHint = `Unit tests failed: ${testEvidence}`;
+      }
+    } else {
+      testEvidence = 'Skipped: Running in test environment (preventing vitest recursion).';
     }
 
     layers.push({
@@ -156,7 +167,7 @@ export class VerifierAgent {
     let reviewEvidence = 'Review approved.';
     let reviewCost = 0.1;
     try {
-      const reviewResult = await this.reviewerAgent.reviewTask(taskNode, execIR);
+      const reviewResult = await this.reviewerAgent.reviewTask(taskNode);
       reviewPassed = reviewResult.passed;
       reviewEvidence = JSON.stringify(reviewResult.comments);
       reviewCost = taskNode.budget.maxCostUsd * 0.15; // approximate review cost
@@ -193,7 +204,7 @@ export class VerifierAgent {
       });
     }
 
-    return {
+    const verificationIR = {
       taskId: taskNode.id,
       layers,
       overallPass,
@@ -201,5 +212,11 @@ export class VerifierAgent {
       retryHint: overallPass ? undefined : retryHint,
       regressions,
     };
+
+    // Write to shared memory (V2)
+    const memoryEngine = new MemoryEngine();
+    memoryEngine.saveTaskReview(taskNode.id, JSON.stringify(verificationIR));
+
+    return verificationIR;
   }
 }
