@@ -10,6 +10,12 @@ export interface LoopcodeConfig {
     planning?: string;
     verification?: string;
   };
+  budget?: {
+    maxMonthlyCostUsd?: number;
+    maxSessionCostUsd?: number;
+    maxTaskCostUsd?: number;
+  };
+  maxParallelAgents?: number;
 }
 
 export class ConfigManager {
