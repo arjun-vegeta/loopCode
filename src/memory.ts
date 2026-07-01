@@ -1,7 +1,7 @@
 import Database from 'better-sqlite3';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import type { Task, VerificationReport } from './types.js';
+import type { VerificationReport } from './types.js';
 
 export interface TaskRecord {
   id: string;
