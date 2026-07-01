@@ -5,9 +5,11 @@ import type { TaskNode, TaskEdge } from '../ir/task.js';
 
 export class GitWorktreeScheduler {
   private baseDir: string;
+  private client?: any;
 
-  constructor(baseDir: string = '.loopcode/worktrees') {
+  constructor(baseDir: string = '.loopcode/worktrees', client?: any) {
     this.baseDir = path.resolve(baseDir);
+    this.client = client;
     if (!fs.existsSync(this.baseDir)) {
       fs.mkdirSync(this.baseDir, { recursive: true });
     }
@@ -95,7 +97,27 @@ export class GitWorktreeScheduler {
       inDegree.set(t.id, 0);
     }
 
-    for (const edge of edges) {
+    // Auto-generate dependencies for writeAllowlist overlaps to avoid merge conflicts
+    const fileToTasks = new Map<string, string[]>();
+    for (const t of tasks) {
+      for (const file of t.writeAllowlist || []) {
+        if (!fileToTasks.has(file)) {
+          fileToTasks.set(file, []);
+        }
+        fileToTasks.get(file)!.push(t.id);
+      }
+    }
+
+    const implicitEdges: TaskEdge[] = [];
+    for (const [_file, taskIds] of fileToTasks.entries()) {
+      for (let i = 0; i < taskIds.length - 1; i++) {
+        implicitEdges.push({ from: taskIds[i], to: taskIds[i + 1], type: 'dependency' });
+      }
+    }
+
+    const allEdges = [...edges, ...implicitEdges];
+
+    for (const edge of allEdges) {
       if (edge.type === 'dependency') {
         adj.get(edge.from)?.push(edge.to);
         inDegree.set(edge.to, (inDegree.get(edge.to) || 0) + 1);
@@ -153,13 +175,85 @@ export class GitWorktreeScheduler {
   /**
    * Helper to merge branches and auto-resolve non-overlapping files.
    */
-  mergeBranch(targetBranch: string, sourceBranch: string): { success: boolean; conflicts: string[] } {
+  async mergeBranch(targetBranch: string, sourceBranch: string): Promise<{ success: boolean; conflicts: string[] }> {
     try {
       execSync(`git checkout ${targetBranch}`, { stdio: 'pipe' });
       execSync(`git merge ${sourceBranch} -m "Merge branch ${sourceBranch}"`, { stdio: 'pipe' });
       return { success: true, conflicts: [] };
     } catch (err: any) {
       const conflicts = this.detectMergeConflicts(process.cwd());
+      if (conflicts.length > 0 && this.client) {
+        console.log(
+          `[WorktreeScheduler] Detected conflicts in ${conflicts.length} files. Attempting LLM resolution...`,
+        );
+        let allResolved = true;
+
+        for (const file of conflicts) {
+          try {
+            const fileContent = fs.readFileSync(file, 'utf8');
+            const { data: session } = await this.client.session.create({ body: { title: 'Conflict Resolution' } });
+            if (!session) {
+              allResolved = false;
+              break;
+            }
+
+            const prompt = `Resolve the following git merge conflicts in ${file}. 
+Return the fully resolved file content with conflict markers (<<<<<<<, =======, >>>>>>>) removed.
+Preserve the correct logic from both branches where applicable.
+
+File content:
+${fileContent}`;
+
+            const { data: result } = await this.client.session.prompt({
+              path: { id: session.id },
+              body: { parts: [{ type: 'text', text: prompt }] } as any,
+            });
+
+            const resolvedContent = result?.text;
+            if (resolvedContent && !resolvedContent.includes('<<<<<<<')) {
+              let finalContent = resolvedContent;
+              if (finalContent.startsWith('```')) {
+                finalContent = finalContent.replace(/^```[\\w]*\\n/, '').replace(/\\n```$/, '');
+              }
+              fs.writeFileSync(file, finalContent);
+              execSync(`git add ${file}`, { stdio: 'pipe' });
+            } else {
+              allResolved = false;
+            }
+            await this.client.session.delete({ path: { id: session.id } }).catch(() => {});
+          } catch (e) {
+            allResolved = false;
+          }
+        }
+
+        if (allResolved) {
+          try {
+            execSync(`git commit -m "Auto-resolved merge conflicts from ${sourceBranch}"`, { stdio: 'pipe' });
+            return { success: true, conflicts: [] };
+          } catch (e) {
+            // Commit failed
+            try {
+              execSync('git merge --abort', { stdio: 'pipe' });
+            } catch (e) {
+              /* ignore */
+            }
+            return { success: false, conflicts };
+          }
+        } else {
+          try {
+            execSync('git merge --abort', { stdio: 'pipe' });
+          } catch (e) {
+            /* ignore */
+          }
+          return { success: false, conflicts };
+        }
+      }
+
+      try {
+        execSync('git merge --abort', { stdio: 'pipe' });
+      } catch (e) {
+        /* ignore */
+      }
       return { success: false, conflicts };
     }
   }
