@@ -69,16 +69,6 @@ export class ReviewerAgent {
     const reviewPrompt = `
 You are an expert software reviewer. Review the modifications made by the engineering agent against the task requirements.
 
-Original Task Goal:
-"${taskNode.goal}"
-Acceptance Criteria:
-${taskNode.acceptanceCriteria.join('\n')}
-
-Git Diff:
-\`\`\`diff
-${gitDiff}
-\`\`\`
-
 Analyze the code changes for:
 1. Logic errors, typos, or security concerns.
 2. Direct adherence to the task goal and allowlists.
@@ -93,6 +83,16 @@ Output a structured JSON response with:
    - "message": string (review feedback)
    - "code": string (optional code suggestion block)
 3. "confidence": float between 0.0 and 1.0
+
+Original Task Goal:
+"${taskNode.goal}"
+Acceptance Criteria:
+${taskNode.acceptanceCriteria.join('\\n')}
+
+Git Diff:
+\`\`\`diff
+${gitDiff}
+\`\`\`
 `;
 
     const reviewSchema = {
