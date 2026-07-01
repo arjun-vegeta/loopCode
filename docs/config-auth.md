@@ -16,6 +16,12 @@ planning = "anthropic/claude-4.8-opus"
 
 # Model used during task executions and verifications
 verification = "anthropic/claude-5-sonnet"
+
+[budgets]
+# Hard limits on USD spend
+monthly = 100.0
+goal = 10.0
+task = 2.0
 ```
 
 ---
@@ -55,3 +61,4 @@ node dist/index.js [goal] [options]
 
 - `0`: Goal completed successfully (all tasks in the plan passed verification).
 - `1`: Goal failed (fatal error, plan validation fail, or max task retries exceeded).
+- `77`: Budget exceeded (CostEngine limit breached, execution aborted).
