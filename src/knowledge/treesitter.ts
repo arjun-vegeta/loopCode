@@ -34,16 +34,20 @@ export class TreeSitterParser {
   private walkTree(node: Parser.SyntaxNode, filePath: string): Symbol[] {
     const symbols: Symbol[] = [];
 
-    if (node.type === 'class_declaration' || node.type === 'function_declaration' || node.type === 'lexical_declaration') {
+    if (
+      node.type === 'class_declaration' ||
+      node.type === 'function_declaration' ||
+      node.type === 'lexical_declaration'
+    ) {
       let nameNode = node.childForFieldName('name');
       if (!nameNode && node.type === 'lexical_declaration') {
-        const declarator = node.children.find(c => c.type === 'variable_declarator');
+        const declarator = node.children.find((c) => c.type === 'variable_declarator');
         if (declarator) {
           nameNode = declarator.childForFieldName('name');
         }
       }
-      if (!nameNode) nameNode = node.children.find(c => c.type === 'identifier');
-      
+      if (!nameNode) nameNode = node.children.find((c) => c.type === 'identifier') || null;
+
       if (nameNode) {
         let type: Symbol['type'] = 'variable';
         if (node.type === 'class_declaration') type = 'class';
@@ -57,7 +61,7 @@ export class TreeSitterParser {
           lineStart: node.startPosition.row + 1,
           lineEnd: node.endPosition.row + 1,
           signature: `${type} ${nameNode.text}`,
-          children: []
+          children: [],
         });
       }
     }
