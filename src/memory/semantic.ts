@@ -9,7 +9,7 @@ export class SemanticMemory {
   constructor(dbPath: string) {
     this.db = new Database(dbPath);
     sqliteVec.load(this.db);
-    
+
     this.db.exec(`
       CREATE VIRTUAL TABLE IF NOT EXISTS semantic_cache USING vec0(
         id INTEGER PRIMARY KEY,
@@ -40,7 +40,7 @@ export class SemanticMemory {
         }
       }
     }
-    
+
     const stmt = this.db.prepare('INSERT INTO semantic_texts (text, metadata) VALUES (?, ?)');
     const info = stmt.run(text, JSON.stringify(metadata));
     const rowId = info.lastInsertRowid;
@@ -68,12 +68,12 @@ export class SemanticMemory {
       WHERE v.embedding MATCH ? AND k = ?
       ORDER BY v.distance ASC
     `);
-    
+
     const results = stmt.all(new Float32Array(vec), limit) as any[];
-    return results.map(r => ({
+    return results.map((r) => ({
       text: r.text,
       metadata: JSON.parse(r.metadata),
-      distance: r.distance
+      distance: r.distance,
     }));
   }
 }
