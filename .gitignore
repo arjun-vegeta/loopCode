@@ -2,3 +2,4 @@ node_modules/
 dist/
 *.db
 build_docs/
+local_cache/
