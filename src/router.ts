@@ -176,4 +176,11 @@ export class Router {
       this.verificationModel = parseModel(standard);
     }
   }
+
+  overrideAllModels(route: ModelRoute) {
+    this.cheapModel = route;
+    this.defaultModel = route;
+    this.planningModel = route;
+    this.verificationModel = route;
+  }
 }

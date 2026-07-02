@@ -13,6 +13,7 @@ import { setupTerminal } from './terminal-setup.js';
 import { openModelPicker } from './model-picker.js';
 import { execSync } from 'node:child_process';
 import * as crypto from 'node:crypto';
+import { select, isCancel } from '@clack/prompts';
 
 // Setup verification layers default state
 const defaultVerificationLayers: VerificationLayers = {
@@ -59,6 +60,51 @@ export async function runCli(
   // If no goal and no resumeTaskId, prompt for choice or session picker
   let targetGoal = initialGoal;
   let targetTaskId = resumeTaskId;
+
+  // Let the user select a model from all available Opencode providers before starting if no goal passed
+  if (!targetGoal && !targetTaskId) {
+    try {
+      const { data: configData } = await opencodeInstance.client.config.providers();
+      const modelOptions: any[] = [];
+
+      if (configData && configData.providers) {
+        for (const providerInfo of configData.providers) {
+          const p = providerInfo as any;
+          if ((p.state === 'ready' || p.configured) && p.models) {
+            for (const m of Object.values<any>(p.models)) {
+              modelOptions.push({
+                value: `${p.id}/${m.id}`,
+                label: m.name || m.id,
+                hint: p.id,
+              });
+            }
+          }
+        }
+      }
+
+      if (modelOptions.length > 0) {
+        // Sort alphabetically by label
+        modelOptions.sort((a, b) => a.label.localeCompare(b.label));
+
+        const selectedModel = await select({
+          message: 'Select an AI model for this session (type to search):',
+          options: modelOptions,
+          maxItems: 12,
+        });
+
+        if (isCancel(selectedModel)) {
+          process.exit(0);
+        }
+
+        const route = ConfigManager.resolveModelRoute(selectedModel as string);
+        if (route) {
+          router.overrideAllModels(route);
+        }
+      }
+    } catch (err) {
+      // Ignore errors fetching models, fallback to default router behavior
+    }
+  }
 
   // Render the Ink App
   let inkInstance: any = null;

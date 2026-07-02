@@ -124,7 +124,7 @@ export class OpencodeOrchestrator {
           .filter((p: any) => p.state === 'ready' || p.configured)
           .map((p: any) => p.id);
 
-        router.updateModelsBasedOnProviders(readyProviders);
+        router.updateModelsBasedOnProviders(readyProviders, config.providers, config.default);
       }
     } catch (err) {
       // Ignore provider resolution errors to ensure fallback default routing is preserved

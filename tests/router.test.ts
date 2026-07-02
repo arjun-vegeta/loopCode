@@ -37,4 +37,17 @@ describe('Router', () => {
     expect(routed.providerID).toBe('openai');
     expect(routed.modelID).toBe('gpt-4o');
   });
+
+  it('overrides all models using overrideAllModels', () => {
+    const localRouter = new Router();
+    localRouter.overrideAllModels({ providerID: 'custom', modelID: 'custom-model' });
+
+    const complexTask = { category: 'feature', expectedOutputs: ['a', 'b', 'c'] } as any as Task;
+    const simpleTask = { category: 'test', expectedOutputs: [] } as any as Task;
+
+    expect(localRouter.route(complexTask).modelID).toBe('custom-model');
+    expect(localRouter.route(simpleTask).modelID).toBe('custom-model');
+    expect(localRouter.getPlanningModel().modelID).toBe('custom-model');
+    expect(localRouter.getVerificationModel().modelID).toBe('custom-model');
+  });
 });
