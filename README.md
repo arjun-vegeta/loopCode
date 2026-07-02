@@ -12,7 +12,7 @@ LoopCode is an autonomous software engineering orchestrator built on top of **Op
 4. **5-Layer Verification Engine**: Validates task correctness via:
    - _Layer 1_: Compilation (Syntax/Type Checks)
    - _Layer 2_: Lint & Style validation
-   - _Layer 3_: Unit Testing (e.g. Jest, Vitest)
+   - _Layer 3_: Unit Testing (e.g. Jest, bun:test)
    - _Layer 4_: Security Scanning (`semgrep`/`trivy` with regex fallbacks)
    - _Layer 5_: Independent LLM Review Agent
 5. **Failure Evidence Re-planning**: If a task exhausts its execution retries, compilation errors, test failures, and reviewer notes are injected directly back into the Planner Agent to self-correct the task DAG.
@@ -41,9 +41,9 @@ npm install -g loopcode
 **3. Local Development Build**
 
 ```bash
-npm install
-npm run build
-npm run package   # Compiles standalone Single Executable Application binary
+bun install
+bun run build
+bun run package   # Compiles standalone binary via bun build
 ```
 
 ### Running a Goal
@@ -51,7 +51,7 @@ npm run package   # Compiles standalone Single Executable Application binary
 Decompose a natural language goal, plan, execute, and verify:
 
 ```bash
-node dist/index.js "Add a new endpoint for user profile retrieval"
+bun run src/index.ts "Add a new endpoint for user profile retrieval"
 ```
 
 ### Resuming a Task
@@ -59,7 +59,7 @@ node dist/index.js "Add a new endpoint for user profile retrieval"
 If a task execution was interrupted (e.g., by a system crash or intentional pause), resume it by passing the task ID:
 
 ```bash
-node dist/index.js --resume "<task-uuid>"
+bun run src/index.ts --resume "<task-uuid>"
 ```
 
 ### Command Options
@@ -89,14 +89,14 @@ task = 2.0
 Run all unit and integration test suites:
 
 ```bash
-npm run test
+bun run test
 ```
 
 For linting and styling check:
 
 ```bash
-npm run lint
-npm run format
+bun run lint
+bun run format
 ```
 
 ## License

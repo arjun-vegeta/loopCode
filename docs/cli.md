@@ -78,14 +78,14 @@ LoopCode strictly blocks running inside system directories (e.g., `/`, `/usr`, `
 
 ## 6. Standalone Binary Packaging
 
-LoopCode packages into a single standalone binary (`./loopcode`) containing Node.js runtime and dependencies:
+LoopCode packages into a single standalone binary (`./loopcode`) utilizing Bun's compiler:
 
 ```bash
-npm run package
+bun run package
 ```
 
 The packaging pipeline:
 
 1. Bundles TS/ESM files into `dist/bundle.js` with `esbuild` using `--packages=external` to keep native bindings external.
-2. Creates an ESM dynamic loader `sea-entry.cjs` using `node:sea` asset retrieval APIs.
-3. Automatically strips macOS codesignatures, extracts the correct Node version sentinel fuse, injects assets, and applies ad-hoc code signing.
+2. Compiles the TypeScript entry point into a standalone executable using `bun build --compile`.
+3. Packages necessary native dynamic libraries (e.g., SQLite extensions) alongside the executable into a release archive.

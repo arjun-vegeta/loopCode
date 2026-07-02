@@ -43,12 +43,12 @@ LoopCode strictly adheres to the "Bring Your Own Key" (BYOK) principle and never
 
 ## CLI Reference
 
-Run LoopCode using standard node execution or compiled packages:
+Run LoopCode using Bun natively or compiled packages:
 
 ### Commands
 
 ```bash
-node dist/index.js [goal] [options]
+bun run src/index.ts [goal] [options]
 ```
 
 ### Options
@@ -67,10 +67,10 @@ node dist/index.js [goal] [options]
 
 ## Standalone Binary Packaging
 
-To generate a self-contained executable `./loopcode` containing the Node.js runtime and bundled source files:
+To generate a self-contained executable `./loopcode` containing the Bun runtime and bundled source files:
 
 ```bash
-npm run package
+bun run package
 ```
 
-This compiles TypeScript files, bundles modules as ESM (excluding native dependencies like `better-sqlite3` and `tree-sitter` which are resolved dynamically), embeds them as a binary asset inside the Node.js SEA (Single Executable Application) container, and ad-hoc signs the binary.
+This transpiles TypeScript files and bundles modules into a single binary executable using Bun (excluding native dependencies like `sqlite-vec` and `onnxruntime-node` which are bundled externally).

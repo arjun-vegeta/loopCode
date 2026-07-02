@@ -21,7 +21,7 @@ The verifier executes steps defined in each task's contract sequentially. If a c
 ### Layer 3: Unit Tests
 
 - **Purpose**: Verifies functional correctness of new logic.
-- **Execution**: Spawns test runners (`vitest`, `jest`, `npm run test`).
+- **Execution**: Spawns test runners (`bun test`, `jest`, `npm run test`).
 - **Outcome**: Captures test outputs and parses total/failed counts using regular expressions. If missing, it gracefully skips.
 
 ### Layer 4: Security Scan
