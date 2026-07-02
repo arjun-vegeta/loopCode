@@ -8,10 +8,7 @@ import { Memory } from './memory.js';
 
 const program = new Command();
 
-program
-  .name('loopcode')
-  .description('LoopCode v1: Autonomous Software Engineering Orchestrator')
-  .version('1.0.0');
+program.name('loopcode').description('LoopCode v1: Autonomous Software Engineering Orchestrator').version('1.0.0');
 
 program
   .argument('[goal]', 'The goal you want LoopCode to achieve')
@@ -32,7 +29,8 @@ program
     if (tomlConfig.model) {
       if (tomlConfig.model.default) routerConfig.default = ConfigManager.resolveModelRoute(tomlConfig.model.default);
       if (tomlConfig.model.planning) routerConfig.planning = ConfigManager.resolveModelRoute(tomlConfig.model.planning);
-      if (tomlConfig.model.verification) routerConfig.verification = ConfigManager.resolveModelRoute(tomlConfig.model.verification);
+      if (tomlConfig.model.verification)
+        routerConfig.verification = ConfigManager.resolveModelRoute(tomlConfig.model.verification);
     }
 
     // 2. Initialize Router & OpenCode
@@ -57,7 +55,7 @@ program
       // 3. Print cumulative cost
       const memory = new Memory(options.db);
       const allTasks = (memory as any).db.prepare('SELECT id, goal, state, total_cost FROM tasks').all();
-      
+
       console.log(`\n=== Execution Summary ===`);
       for (const t of allTasks) {
         console.log(`- Task Goal: "${t.goal}"`);
@@ -66,7 +64,6 @@ program
       }
       console.log(`=========================\n`);
       memory.close();
-
     } catch (err: any) {
       console.error(`\n❌ Fatal Error: ${err.message}`);
       process.exit(1);

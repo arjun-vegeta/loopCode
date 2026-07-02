@@ -25,6 +25,7 @@ npm run build
 ### Running a Goal
 
 Decompose a natural language goal, plan, execute, and verify:
+
 ```bash
 node dist/index.js "Add a new endpoint for user profile retrieval"
 ```
@@ -32,6 +33,7 @@ node dist/index.js "Add a new endpoint for user profile retrieval"
 ### Resuming a Task
 
 If a task execution was interrupted, resume it by passing the task ID:
+
 ```bash
 node dist/index.js --resume "<task-uuid>"
 ```

@@ -22,7 +22,7 @@ export class Memory {
     if (dbDir !== '.' && !fs.existsSync(dbDir)) {
       fs.mkdirSync(dbDir, { recursive: true });
     }
-    
+
     this.db = new Database(dbPath);
     this.initializeSchema();
   }
@@ -140,7 +140,13 @@ export class Memory {
 
   // --- Task Results Methods ---
 
-  saveTaskResult(taskId: string, stepIndex: number, verification: VerificationReport, cost: number, durationMs: number) {
+  saveTaskResult(
+    taskId: string,
+    stepIndex: number,
+    verification: VerificationReport,
+    cost: number,
+    durationMs: number,
+  ) {
     const stmt = this.db.prepare(`
       INSERT INTO task_results (task_id, step_index, verification_json, cost, duration_ms)
       VALUES (?, ?, ?, ?, ?)

@@ -4,7 +4,7 @@ import { OpencodeOrchestrator } from '../src/opencode.js';
 // Mock the openCode module
 vi.mock('@opencode-ai/sdk', () => {
   return {
-    createOpencode: vi.fn()
+    createOpencode: vi.fn(),
   };
 });
 
@@ -23,12 +23,12 @@ describe('OpencodeOrchestrator', () => {
           providers: vi.fn().mockResolvedValue({
             data: {
               default: {},
-              providers: []
-            }
-          })
-        }
+              providers: [],
+            },
+          }),
+        },
       },
-      server: { close: vi.fn() }
+      server: { close: vi.fn() },
     });
 
     await expect(OpencodeOrchestrator.initialize()).rejects.toThrow(/No LLM provider configured/);
@@ -37,7 +37,7 @@ describe('OpencodeOrchestrator', () => {
   it('times out and aborts if prompt takes too long', async () => {
     // Mock successful auth
     const abortMock = vi.fn().mockResolvedValue({});
-    
+
     // Create a prompt function that hangs forever
     const promptMock = vi.fn().mockImplementation(() => {
       return new Promise((resolve) => {
@@ -50,21 +50,21 @@ describe('OpencodeOrchestrator', () => {
         config: {
           providers: vi.fn().mockResolvedValue({
             data: {
-              default: { model: "anthropic/claude" },
-              providers: [{ state: "ready" }]
-            }
-          })
+              default: { model: 'anthropic/claude' },
+              providers: [{ state: 'ready' }],
+            },
+          }),
         },
         session: {
-          create: vi.fn().mockResolvedValue({ data: { id: "test-session" } }),
+          create: vi.fn().mockResolvedValue({ data: { id: 'test-session' } }),
           prompt: promptMock,
-          abort: abortMock
+          abort: abortMock,
         },
         event: {
-          subscribe: vi.fn().mockResolvedValue({ stream: [] })
-        }
+          subscribe: vi.fn().mockResolvedValue({ stream: [] }),
+        },
       },
-      server: { close: vi.fn() }
+      server: { close: vi.fn() },
     });
 
     const orchestrator = await OpencodeOrchestrator.initialize();
@@ -79,13 +79,13 @@ describe('OpencodeOrchestrator', () => {
       writeAllowlist: [],
       verification: [],
       maxCost: 1,
-      timeout: 0.1 // 100ms timeout for test
+      timeout: 0.1, // 100ms timeout for test
     };
 
     const result = await orchestrator.executeTask(task);
 
     expect(result.success).toBe(false);
     expect(result.message).toMatch(/Task timed out/);
-    expect(abortMock).toHaveBeenCalledWith({ path: { id: "test-session" } });
+    expect(abortMock).toHaveBeenCalledWith({ path: { id: 'test-session' } });
   });
 });

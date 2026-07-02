@@ -10,22 +10,22 @@ export class Verifier {
       taskId: task.id,
       layers: {},
       overallPass: true,
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
     };
 
     // Sequentially run all defined verification steps
     for (const step of task.verification) {
       const startTime = Date.now();
-      
+
       try {
         const { stdout, stderr, code } = await this.runCommand(step.command);
         const passed = code === step.expectedExitCode;
-        
+
         const layerResult = {
           passed,
           stdout,
           stderr,
-          durationMs: Date.now() - startTime
+          durationMs: Date.now() - startTime,
         };
 
         if (step.type === 'compile') {
@@ -36,12 +36,12 @@ export class Verifier {
           report.layers.test = {
             ...layerResult,
             testCount: testCount.total,
-            failCount: testCount.failed
+            failCount: testCount.failed,
           };
         } else if (step.type === 'lint') {
           report.layers.lint = layerResult;
         }
-        
+
         if (!passed) {
           report.overallPass = false;
           // Fail fast on compilation or tests
@@ -52,9 +52,9 @@ export class Verifier {
       } catch (err: any) {
         const failedLayerResult = {
           passed: false,
-          stdout: "",
+          stdout: '',
           stderr: err.message || String(err),
-          durationMs: Date.now() - startTime
+          durationMs: Date.now() - startTime,
         };
 
         if (step.type === 'compile') {
@@ -76,11 +76,11 @@ export class Verifier {
   /**
    * Helper to run a shell command and capture its output.
    */
-  private static runCommand(command: string): Promise<{ stdout: string, stderr: string, code: number }> {
+  private static runCommand(command: string): Promise<{ stdout: string; stderr: string; code: number }> {
     return new Promise((resolve) => {
       const child = spawn(command, [], {
         shell: true,
-        stdio: ['ignore', 'pipe', 'pipe']
+        stdio: ['ignore', 'pipe', 'pipe'],
       });
 
       let stdout = '';
@@ -111,10 +111,10 @@ export class Verifier {
     try {
       const totalMatch = stdout.match(/Tests?:\s*(\d+)/i) || stdout.match(/(\d+)\s*passed/i);
       const failedMatch = stdout.match(/failed:\s*(\d+)/i) || stdout.match(/(\d+)\s*failed/i);
-      
+
       const total = totalMatch ? parseInt(totalMatch[1], 10) : 0;
       const failed = failedMatch ? parseInt(failedMatch[1], 10) : 0;
-      
+
       return { total, failed };
     } catch {
       return { total: 0, failed: 0 };

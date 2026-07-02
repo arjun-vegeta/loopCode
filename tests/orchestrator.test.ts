@@ -11,9 +11,9 @@ vi.mock('../src/opencode.js', () => {
     OpencodeOrchestrator: vi.fn().mockImplementation(() => {
       return {
         client: {},
-        executeTask: vi.fn().mockResolvedValue({ success: true, message: 'Executed' })
+        executeTask: vi.fn().mockResolvedValue({ success: true, message: 'Executed' }),
       };
-    })
+    }),
   };
 });
 
@@ -32,21 +32,21 @@ vi.mock('../src/planner.js', () => {
               expectedOutputs: [],
               writeAllowlist: [],
               verification: [{ type: 'compile', command: 'npm run build', expectedExitCode: 0 }],
-              maxCost: 2.00,
-              timeout: 300
-            }
+              maxCost: 2.0,
+              timeout: 300,
+            },
           ];
-        })
+        }),
       };
-    })
+    }),
   };
 });
 
 vi.mock('../src/verifier.js', () => {
   return {
     Verifier: {
-      verifyTask: vi.fn()
-    }
+      verifyTask: vi.fn(),
+    },
   };
 });
 
@@ -68,7 +68,7 @@ describe('Orchestrator State Machine & Persistence', () => {
       taskId: 'test-task',
       layers: { compile: { passed: true, stdout: '', stderr: '', durationMs: 10 } },
       overallPass: true,
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
     });
 
     const orchestrator = new Orchestrator(mockOpencode, TEST_DB);
@@ -82,7 +82,7 @@ describe('Orchestrator State Machine & Persistence', () => {
     const tasks = memory.getTaskResults(taskId);
     // Task index 0 should be completed and logged
     expect(tasks.length).toBe(1);
-    
+
     memory.close();
   });
 
@@ -92,11 +92,11 @@ describe('Orchestrator State Machine & Persistence', () => {
       taskId: 'test-task',
       layers: { compile: { passed: false, stdout: '', stderr: 'Compiler Error', durationMs: 10 } },
       overallPass: false,
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
     });
 
     const orchestrator = new Orchestrator(mockOpencode, TEST_DB);
-    
+
     // We expect it to cycle through execution and retry until MAX_RETRIES.
     // However, on exceeding retries, it transitions back to 'planning' and loop would continue.
     // To prevent infinite loop in tests, we can change the mock behavior after a few calls.
@@ -109,14 +109,14 @@ describe('Orchestrator State Machine & Persistence', () => {
           taskId: 'test-task',
           layers: { compile: { passed: true, stdout: '', stderr: '', durationMs: 10 } },
           overallPass: true,
-          timestamp: new Date().toISOString()
+          timestamp: new Date().toISOString(),
         };
       }
       return {
         taskId: 'test-task',
         layers: { compile: { passed: false, stdout: '', stderr: 'Compiler Error', durationMs: 10 } },
         overallPass: false,
-        timestamp: new Date().toISOString()
+        timestamp: new Date().toISOString(),
       };
     });
 
@@ -128,12 +128,12 @@ describe('Orchestrator State Machine & Persistence', () => {
     const taskId = allTasks[0].id;
 
     const logs = memory.getStateLogs(taskId);
-    
+
     // We should see a transition from executing -> verifying -> executing (retry) -> verifying -> done
     const phases = logs.map((l: any) => l.phase);
     expect(phases).toContain('executing');
     expect(phases).toContain('verifying');
-    
+
     memory.close();
   });
 
@@ -143,16 +143,16 @@ describe('Orchestrator State Machine & Persistence', () => {
       taskId: 'test-task',
       layers: { compile: { passed: false, stdout: '', stderr: 'Compiler Error', durationMs: 10 } },
       overallPass: false,
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
     });
 
     // To prevent an infinite planning-executing loop, we stub the planning state in memory after it transitions
     const orchestrator = new Orchestrator(mockOpencode, TEST_DB);
-    
+
     // Intercept planning execution by throwing to check if it entered planning again
     let planningCount = 0;
     const originalHandlePlanning = (orchestrator as any).handlePlanning;
-    (orchestrator as any).handlePlanning = async function(record: any) {
+    (orchestrator as any).handlePlanning = async function (record: any) {
       planningCount++;
       if (planningCount > 1) {
         // Transition task to failed manually to break the loop
@@ -181,7 +181,7 @@ describe('Orchestrator State Machine & Persistence', () => {
     const memory = new Memory(TEST_DB);
     const taskId = 'crash-task-id';
     memory.createTask(taskId, 'Resume Goal', 'executing');
-    
+
     // Mock the plan so there is something to execute
     const plan = [
       {
@@ -194,8 +194,8 @@ describe('Orchestrator State Machine & Persistence', () => {
         writeAllowlist: [],
         verification: [],
         maxCost: 1,
-        timeout: 100
-      }
+        timeout: 100,
+      },
     ];
     memory.updateTaskPlan(taskId, plan);
     memory.close();
@@ -205,7 +205,7 @@ describe('Orchestrator State Machine & Persistence', () => {
       taskId: 'test-task',
       layers: { compile: { passed: true, stdout: '', stderr: '', durationMs: 10 } },
       overallPass: true,
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
     });
 
     // Start a new orchestrator pointing to the same DB
