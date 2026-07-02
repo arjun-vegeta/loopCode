@@ -10,11 +10,11 @@ LoopCode is an autonomous software engineering orchestrator built on top of **Op
 2. **Semantic Knowledge & Code Graph**: Fast local semantic embeddings using `fastembed` and `sqlite-vec`. Incremental codebase indexing parses classes, functions, and variables via `tree-sitter`, augmented by a JSON-RPC Language Server Protocol (LSP) client.
 3. **Parallel Task Scheduling**: Decomposes natural language goals into a Directed Acyclic Graph (DAG) of tasks. The `GitWorktreeScheduler` performs a topological sort based on file `writeAllowlist` permissions and runs independent batches concurrently in isolated Git worktrees.
 4. **5-Layer Verification Engine**: Validates task correctness via:
-   - *Layer 1*: Compilation (Syntax/Type Checks)
-   - *Layer 2*: Lint & Style validation
-   - *Layer 3*: Unit Testing (e.g. Jest, Vitest)
-   - *Layer 4*: Security Scanning (`semgrep`/`trivy` with regex fallbacks)
-   - *Layer 5*: Independent LLM Review Agent
+   - _Layer 1_: Compilation (Syntax/Type Checks)
+   - _Layer 2_: Lint & Style validation
+   - _Layer 3_: Unit Testing (e.g. Jest, Vitest)
+   - _Layer 4_: Security Scanning (`semgrep`/`trivy` with regex fallbacks)
+   - _Layer 5_: Independent LLM Review Agent
 5. **Failure Evidence Re-planning**: If a task exhausts its execution retries, compilation errors, test failures, and reviewer notes are injected directly back into the Planner Agent to self-correct the task DAG.
 6. **Cost & Budget Limits**: Enforces Monthly ➔ Goal ➔ Task spend caps. If breached, the system executes a `git reset --hard` to rollback changes and terminates with **exit code 77**.
 7. **Loop/Oscillation Prevention**: Hashes state signatures (phase, task index, modified files, and retry attempts) to detect infinite loops. Pauses execution and prompts the user for manual guidance if oscillation occurs.
@@ -24,9 +24,26 @@ LoopCode is an autonomous software engineering orchestrator built on top of **Op
 
 ### Installation
 
+You can install LoopCode globally using the standard installer, the npm global package fallback, or build it locally.
+
+**1. Standalone Binary Installer (Recommended)**
+
+```bash
+curl -fsSL https://loopcode.ai/install.sh | bash
+```
+
+**2. Global NPM Fallback (For environments without curl/bash access)**
+
+```bash
+npm install -g loopcode
+```
+
+**3. Local Development Build**
+
 ```bash
 npm install
 npm run build
+npm run package   # Compiles standalone Single Executable Application binary
 ```
 
 ### Running a Goal

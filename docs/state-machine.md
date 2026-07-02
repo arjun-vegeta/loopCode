@@ -56,6 +56,7 @@ If an identical state signature is encountered twice (indicating no progress is 
 ### 2. Budget Enforcement
 
 Before spawning any model execution, the `CostEngine` validates estimated costs against limits in `config.toml`. If a breach is detected:
+
 1. The `GitWorktreeScheduler` runs `git reset --hard` to rollback all uncommitted changes.
 2. It terminates the CLI session with a custom **exit code 77**.
 
