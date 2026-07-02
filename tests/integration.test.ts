@@ -1,6 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { Orchestrator } from '../src/orchestrator.js';
-import { OpencodeOrchestrator } from '../src/opencode.js';
 import { Memory } from '../src/memory.js';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
@@ -102,7 +101,7 @@ describe('LoopCode Integration Flow', () => {
 
     const mockOpencode = {
       client: mockClient,
-      executeTask: vi.fn().mockImplementation(async (task) => {
+      executeTask: vi.fn().mockImplementation(async (_task) => {
         // Mocking the agent file edit operation
         fs.writeFileSync(OUTPUT_FILE, 'SUCCESS', 'utf8');
         return { success: true, message: 'Wrote output file' };
