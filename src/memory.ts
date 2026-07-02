@@ -14,6 +14,22 @@ export interface TaskRecord {
   updated_at?: string;
 }
 
+export interface SessionRecord {
+  id: string;
+  name: string | null;
+  goal_id: string;
+  status: 'active' | 'paused' | 'archived';
+  created_at: string;
+  updated_at: string;
+  last_activity: string;
+  message_count: number;
+  total_cost: number;
+  context_usage: number;
+  git_branch: string | null;
+  parent_session_id: string | null;
+  metadata: string | null;
+}
+
 export class Memory {
   private db: Database.Database;
 
@@ -85,6 +101,24 @@ export class Memory {
           review_json TEXT NOT NULL,
           created_at DATETIME DEFAULT CURRENT_TIMESTAMP
         );
+        CREATE TABLE IF NOT EXISTS sessions (
+          id TEXT PRIMARY KEY,
+          name TEXT,
+          goal_id TEXT NOT NULL REFERENCES tasks(id),
+          status TEXT DEFAULT 'active',
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          last_activity DATETIME DEFAULT CURRENT_TIMESTAMP,
+          message_count INTEGER DEFAULT 0,
+          total_cost REAL DEFAULT 0.0,
+          context_usage INTEGER DEFAULT 0,
+          git_branch TEXT,
+          parent_session_id TEXT REFERENCES sessions(id),
+          metadata TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_sessions_status ON sessions(status);
+        CREATE INDEX IF NOT EXISTS idx_sessions_name ON sessions(name);
+        CREATE INDEX IF NOT EXISTS idx_sessions_activity ON sessions(last_activity);
       `);
     }
   }
@@ -181,6 +215,65 @@ export class Memory {
   getTaskResults(taskId: string) {
     const stmt = this.db.prepare('SELECT * FROM task_results WHERE task_id = ? ORDER BY step_index ASC');
     return stmt.all(taskId);
+  }
+
+  // --- Session Methods ---
+
+  createSession(
+    id: string,
+    name: string | null,
+    goalId: string,
+    parentSessionId: string | null = null,
+    metadata: string | null = null,
+    gitBranch: string | null = null,
+  ) {
+    const stmt = this.db.prepare(`
+      INSERT INTO sessions (id, name, goal_id, status, parent_session_id, metadata, git_branch)
+      VALUES (?, ?, ?, 'active', ?, ?, ?)
+    `);
+    stmt.run(id, name, goalId, parentSessionId, metadata, gitBranch);
+  }
+
+  updateSessionStatus(id: string, status: 'active' | 'paused' | 'archived') {
+    const stmt = this.db.prepare(`
+      UPDATE sessions
+      SET status = ?, updated_at = CURRENT_TIMESTAMP, last_activity = CURRENT_TIMESTAMP
+      WHERE id = ?
+    `);
+    stmt.run(status, id);
+  }
+
+  updateSessionActivity(id: string, messageCount: number, totalCost: number, contextUsage: number) {
+    const stmt = this.db.prepare(`
+      UPDATE sessions
+      SET message_count = ?, total_cost = ?, context_usage = ?, updated_at = CURRENT_TIMESTAMP, last_activity = CURRENT_TIMESTAMP
+      WHERE id = ?
+    `);
+    stmt.run(messageCount, totalCost, contextUsage, id);
+  }
+
+  renameSession(id: string, name: string) {
+    const stmt = this.db.prepare(`
+      UPDATE sessions
+      SET name = ?, updated_at = CURRENT_TIMESTAMP, last_activity = CURRENT_TIMESTAMP
+      WHERE id = ?
+    `);
+    stmt.run(name, id);
+  }
+
+  deleteSession(id: string) {
+    const stmt = this.db.prepare('DELETE FROM sessions WHERE id = ?');
+    stmt.run(id);
+  }
+
+  getSession(id: string): SessionRecord | undefined {
+    const stmt = this.db.prepare('SELECT * FROM sessions WHERE id = ?');
+    return stmt.get(id) as SessionRecord | undefined;
+  }
+
+  getSessions(): SessionRecord[] {
+    const stmt = this.db.prepare('SELECT * FROM sessions ORDER BY last_activity DESC');
+    return stmt.all() as SessionRecord[];
   }
 
   close() {
