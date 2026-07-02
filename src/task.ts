@@ -25,13 +25,14 @@ export function validatePlan(tasks: Task[]): ValidationResult {
     }
   }
 
-  const conflicts = Array.from(fileToTasks.entries())
-    .filter(([_, taskList]) => taskList.length > 1);
+  const conflicts = Array.from(fileToTasks.entries()).filter(([_, taskList]) => taskList.length > 1);
 
   if (conflicts.length > 0) {
     for (const [file, taskList] of conflicts) {
-      const descriptions = taskList.map(t => `"${t.description}"`).join(', ');
-      warnings.push(`File "${file}" will be modified sequentially by multiple tasks: ${descriptions}. This is allowed but may require care.`);
+      const descriptions = taskList.map((t) => `"${t.description}"`).join(', ');
+      warnings.push(
+        `File "${file}" will be modified sequentially by multiple tasks: ${descriptions}. This is allowed but may require care.`,
+      );
     }
   }
 
@@ -41,7 +42,7 @@ export function validatePlan(tasks: Task[]): ValidationResult {
       return {
         valid: false,
         warnings,
-        conflicts
+        conflicts,
       };
     }
     if (task.timeout <= 0) {
@@ -50,13 +51,13 @@ export function validatePlan(tasks: Task[]): ValidationResult {
     }
     if (task.maxCost <= 0) {
       warnings.push(`Task "${task.description}" has invalid budget $${task.maxCost}. Overriding to default $2.00.`);
-      task.maxCost = 2.00;
+      task.maxCost = 2.0;
     }
   }
 
   return {
     valid: true,
     warnings,
-    conflicts
+    conflicts,
   };
 }

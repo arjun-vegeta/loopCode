@@ -19,16 +19,19 @@ re-plan (retries exhausted) ◄── [VERIFYING] ──────────
 ```
 
 ### 1. PLANNING
+
 - **Trigger**: New goal requested, or previous task retries are exhausted (requires re-planning).
 - **Process**: The planner parses the goal and generates a list of Tasks.
 - **Evidence to transition**: Valid task list written to DB.
 
 ### 2. EXECUTING
+
 - **Trigger**: Tasks generated, or verification failed but retry is allowed.
 - **Process**: The orchestrator triggers an OpenCode session to resolve the specific task.
 - **Evidence to transition**: OpenCode prompt execution completes or times out.
 
 ### 3. VERIFYING
+
 - **Trigger**: OpenCode task execution finishes.
 - **Process**: Runs local verification steps defined in the task contract (compilation, testing, linting).
 - **Evidence to transition**:
@@ -64,6 +67,7 @@ node dist/index.js --resume <task-uuid>
 ```
 
 ### Key Tables (`db/schema.sql`):
+
 - `tasks`: Records goals, overall phase states (`planning`, `executing`, etc.), task arrays, and cumulative run cost.
 - `state_log`: Chronological ledger of all state transitions and transition metadata.
 - `task_results`: Saves the verification outputs, costs, and durations for each completed task.
