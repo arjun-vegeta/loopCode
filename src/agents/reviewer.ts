@@ -1,6 +1,7 @@
 import type { OpencodeClient } from '@opencode-ai/sdk';
 import type { TaskNode } from '../ir/task.js';
 import type { ExecutionIR } from '../ir/execution.js';
+import { MemoryEngine } from '../memory/engine.js';
 import { execSync } from 'child_process';
 
 export interface ReviewComment {
@@ -29,7 +30,16 @@ export class ReviewerAgent {
   /**
    * Reviews the code modifications done during execution.
    */
-  async reviewTask(taskNode: TaskNode, execIR: ExecutionIR): Promise<ReviewReport> {
+  async reviewTask(taskNode: TaskNode, execIR?: ExecutionIR): Promise<ReviewReport> {
+    if (!execIR) {
+      const memory = new MemoryEngine();
+      const execJson = memory.getTaskExecution(taskNode.id);
+      if (!execJson) {
+        throw new Error('No execution IR found in shared memory for task ' + taskNode.id);
+      }
+      execIR = JSON.parse(execJson) as ExecutionIR;
+    }
+
     const { data: session, error: createError } = await this.client.session.create({
       body: { title: `Code Review: ${taskNode.id}` },
     });
