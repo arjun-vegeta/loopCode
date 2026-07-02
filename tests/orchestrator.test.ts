@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { Orchestrator, MAX_RETRIES } from '../src/orchestrator.js';
+import { Orchestrator } from '../src/orchestrator.js';
 import { Memory } from '../src/memory.js';
 import { OpencodeOrchestrator } from '../src/opencode.js';
 import { Verifier } from '../src/verifier.js';

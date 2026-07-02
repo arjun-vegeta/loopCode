@@ -1,6 +1,6 @@
 import type { OpencodeClient } from '@opencode-ai/sdk';
 import type { GoalIR } from '../ir/goal.js';
-import { TaskIRSchema, type TaskIR } from '../ir/task.js';
+import type { TaskIR } from '../ir/task.js';
 import { IRValidator } from '../ir/validator.js';
 import * as crypto from 'node:crypto';
 
