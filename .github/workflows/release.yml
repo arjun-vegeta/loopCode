@@ -6,46 +6,35 @@ on:
       - 'v*'
 
 jobs:
-  build:
-    runs-on: ${{ matrix.os }}
-    strategy:
-      matrix:
-        os: [ubuntu-latest, macos-latest]
-        include:
-          - os: ubuntu-latest
-            asset_name: loopcode-linux.tar.gz
-          - os: macos-latest
-            asset_name: loopcode-macos.tar.gz
+  validate:
+    runs-on: ubuntu-latest
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
         with:
-          node-version: 22
-          cache: 'npm'
+          bun-version: latest
 
       - name: Install dependencies
-        run: npm ci
+        run: bun install
 
-      - name: Build TypeScript and bundle
-        run: |
-          npm run build
-          npm run package
+      - name: Format Check
+        run: bun run format:check
 
-      - name: Compress executable binary
-        run: tar -czf ${{ matrix.asset_name }} loopcode
+      - name: Lint Check
+        run: bun run lint
 
-      - name: Upload Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ matrix.asset_name }}
-          path: ${{ matrix.asset_name }}
+      - name: Type Check
+        run: bun x tsc --noEmit
+
+      - name: Run Tests
+        run: bun test
 
   publish:
-    needs: build
+    needs: validate
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -54,15 +43,9 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Download all artifacts
-        uses: actions/download-artifact@v4
-
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          files: |
-            loopcode-linux.tar.gz/loopcode-linux.tar.gz
-            loopcode-macos.tar.gz/loopcode-macos.tar.gz
           draft: false
           prerelease: false
         env:

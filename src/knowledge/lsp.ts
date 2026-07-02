@@ -15,7 +15,7 @@ export class LSPClient {
   private emitter = new EventEmitter();
 
   async initialize(projectRoot: string): Promise<void> {
-    this.process = spawn('npx', ['typescript-language-server', '--stdio'], {
+    this.process = spawn('npx', ['--yes', 'typescript-language-server', '--stdio'], {
       cwd: projectRoot,
     });
 

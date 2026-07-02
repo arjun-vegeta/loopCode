@@ -59,5 +59,5 @@ describe('Code Knowledge Engine', () => {
 
     const typeInfo = await client.getTypeInfo(testFile, 2, 5);
     expect(typeInfo).toBe('any');
-  });
+  }, 30000);
 });

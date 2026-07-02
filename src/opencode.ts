@@ -13,10 +13,16 @@ export class OpencodeOrchestrator {
     this.router = router || new Router();
   }
 
-  static async initialize(router?: Router): Promise<OpencodeOrchestrator> {
-    const { client, server } = await createOpencode();
+  static async initialize(router?: Router, mockClient?: any, mockServer?: any): Promise<OpencodeOrchestrator> {
+    let client = mockClient;
+    let server = mockServer;
+    if (!client || !server) {
+      const res = await createOpencode();
+      client = client || res.client;
+      server = server || res.server;
+    }
 
-    const orchestrator = new OpencodeOrchestrator(client, () => server.close(), router);
+    const orchestrator = new OpencodeOrchestrator(client, () => server?.close(), router);
     await orchestrator.checkAuth();
     return orchestrator;
   }
