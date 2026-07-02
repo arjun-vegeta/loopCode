@@ -4,7 +4,7 @@ import { runCli } from './cli/runner.js';
 
 const program = new Command();
 
-program.name('loopcode').description('LoopCode v3: Autonomous Software Engineering Orchestrator').version('3.0.0');
+program.name('loopcode').description('LoopCode: Autonomous Software Engineering Orchestrator').version('1.0.0');
 
 program
   .argument('[goal]', 'The goal you want LoopCode to achieve')
