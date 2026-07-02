@@ -49,12 +49,124 @@ export class Orchestrator {
   private initialCommit: string | null = null;
   private indexer: CodeIndexer;
 
+  public listener?: {
+    onPhaseChange?: (phase: 'planning' | 'executing' | 'verifying' | 'done' | 'failed') => void;
+    onTasksUpdate?: (tasks: any[]) => void;
+    onCostUpdate?: (spent: number) => void;
+    onVerificationUpdate?: (layers: any) => void;
+  };
+
+  private updateState(taskId: string, state: TaskRecord['state'], extraJson: Record<string, any> = {}) {
+    this.memory.updateTaskState(taskId, state, extraJson);
+    this.listener?.onPhaseChange?.(state);
+  }
+
   constructor(opencode: OpencodeOrchestrator, dbPath: string = 'loopcode.db', router?: Router) {
     this.opencode = opencode;
     this.dbPath = dbPath;
     this.memory = new Memory(dbPath);
     this.router = router || new Router();
     this.planner = new Planner(this.opencode.client, this.router);
+
+    // Wrap memory's updateTaskState to notify phase changes and task statuses
+    const originalUpdateState = this.memory.updateTaskState.bind(this.memory);
+    (this.memory as any).updateTaskState = (id: string, state: any, extraJson: any = {}) => {
+      originalUpdateState(id, state, extraJson);
+      this.listener?.onPhaseChange?.(state);
+
+      if (state === 'executing' || state === 'verifying' || state === 'done') {
+        const taskRecord = this.memory.getTask(id);
+        if (taskRecord && taskRecord.plan_json) {
+          const plan = JSON.parse(taskRecord.plan_json);
+          const currentIdx = taskRecord.current_task_index;
+          const currentBatch = plan[currentIdx] || [];
+          const uiTasks = plan.flat().map((t: any) => {
+            const isCurrentBatch = currentBatch.some((cb: any) => cb.id === t.id);
+            let tStatus: any = 'pending';
+            let steps = 0;
+            if (state === 'done') {
+              tStatus = 'completed';
+              steps = 5;
+            } else if (plan.indexOf(t) < currentIdx) {
+              tStatus = 'completed';
+              steps = 5;
+            } else if (isCurrentBatch) {
+              tStatus = state === 'executing' ? 'executing' : 'verifying';
+              steps = state === 'executing' ? 2 : 4;
+            }
+            return {
+              id: t.id,
+              title: t.description,
+              model: t.model || 'kimi-k2.6',
+              status: tStatus,
+              stepsCompleted: steps,
+              stepsTotal: 5,
+              cost: tStatus === 'completed' ? t.maxCost || 0.1 : tStatus === 'pending' ? 0 : 0.05,
+              budget: t.maxCost || 1.0,
+            };
+          });
+          this.listener?.onTasksUpdate?.(uiTasks);
+        }
+      }
+    };
+
+    // Wrap memory's updateTaskPlan to notify task list updates
+    const originalUpdatePlan = this.memory.updateTaskPlan.bind(this.memory);
+    (this.memory as any).updateTaskPlan = (id: string, plan: any[]) => {
+      originalUpdatePlan(id, plan);
+      const uiTasks = plan.flat().map((t: any) => ({
+        id: t.id,
+        title: t.description,
+        model: t.model || 'claude-5-sonnet',
+        status: 'pending' as const,
+        stepsCompleted: 0,
+        stepsTotal: 5,
+        cost: 0,
+        budget: t.maxCost || 1.0,
+      }));
+      this.listener?.onTasksUpdate?.(uiTasks);
+    };
+
+    // Wrap memory's saveTaskResult to notify cost and verification updates
+    const originalSaveResult = this.memory.saveTaskResult.bind(this.memory);
+    (this.memory as any).saveTaskResult = (
+      taskId: string,
+      stepIndex: number,
+      verification: any,
+      cost: number,
+      durationMs: number,
+    ) => {
+      originalSaveResult(taskId, stepIndex, verification, cost, durationMs);
+
+      const task = this.memory.getTask(taskId);
+      if (task) {
+        this.listener?.onCostUpdate?.(task.total_cost);
+      }
+
+      const verificationLayers = {
+        compile: {
+          passed: verification.layers?.compile?.passed ?? null,
+          durationMs: verification.layers?.compile?.durationMs ?? 0,
+          cost: 0.01,
+        },
+        lint: {
+          passed: verification.layers?.lint?.passed ?? null,
+          durationMs: verification.layers?.lint?.durationMs ?? 0,
+          cost: 0.005,
+        },
+        tests: {
+          passed: verification.layers?.test?.passed ?? null,
+          durationMs: verification.layers?.test?.durationMs ?? 0,
+          cost: 0.015,
+        },
+        security: {
+          passed: verification.layers?.security?.passed ?? null,
+          durationMs: verification.layers?.security?.durationMs ?? 0,
+          cost: 0.002,
+        },
+      };
+      this.listener?.onVerificationUpdate?.(verificationLayers);
+    };
 
     // Initialize V2 Engines
     this.classifier = new Classifier();

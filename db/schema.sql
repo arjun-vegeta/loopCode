@@ -165,3 +165,25 @@ CREATE TABLE IF NOT EXISTS task_reviews (
   review_json TEXT NOT NULL,
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
+
+-- Extended schema for v3 session management
+CREATE TABLE IF NOT EXISTS sessions (
+  id TEXT PRIMARY KEY,
+  name TEXT,
+  goal_id TEXT NOT NULL REFERENCES tasks(id),
+  status TEXT DEFAULT 'active',  -- active, paused, archived
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  last_activity DATETIME DEFAULT CURRENT_TIMESTAMP,
+  message_count INTEGER DEFAULT 0,
+  total_cost REAL DEFAULT 0.0,
+  context_usage INTEGER DEFAULT 0,  -- tokens used
+  git_branch TEXT,
+  parent_session_id TEXT REFERENCES sessions(id),  -- for forks
+  metadata TEXT  -- JSON: {model, permissionMode, etc.}
+);
+
+CREATE INDEX IF NOT EXISTS idx_sessions_status ON sessions(status);
+CREATE INDEX IF NOT EXISTS idx_sessions_name ON sessions(name);
+CREATE INDEX IF NOT EXISTS idx_sessions_activity ON sessions(last_activity);
+

@@ -8,6 +8,7 @@
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
     "types": ["node"],
+    "jsx": "react-jsx",
     "rootDir": "src",
     "outDir": "./dist"
   },

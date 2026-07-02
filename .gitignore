@@ -3,3 +3,6 @@ dist/
 *.db
 build_docs/
 local_cache/
+loopcode
+sea-prep.blob
+.loopcode-tmp-*.mjs

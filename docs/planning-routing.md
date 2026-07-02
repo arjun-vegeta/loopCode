@@ -35,9 +35,11 @@ export interface Task {
 ```
 
 ### Topological Sorting & Execution
+
 Tasks are intelligently grouped into non-conflicting batches using the `GitWorktreeScheduler`. It reads the `writeAllowlist` of each task and performs a topological sort. Tasks without overlapping files are executed concurrently using `Promise.all()` inside isolated Git worktrees. If conflicts arise, `mergeBranch()` utilizes the `EngineerAgent` to auto-resolve them.
 
 ### Failure Evidence Injection
+
 When a task fails verification repeatedly and exhausts its retry limits, the orchestrator loops back to the `planning` stage. During this replan, the `ContextEngine` injects the detailed failure reports (compilation errors, test failures, or Reviewer notes) straight back into the `PlannerAgent`'s prompt. This allows the agent to self-correct the DAG structure based on what failed.
 
 ---
