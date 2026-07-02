@@ -4,7 +4,10 @@
   "main": "index.js",
   "scripts": {
     "build": "tsc",
-    "test": "vitest run"
+    "test": "vitest run",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "format:check": "prettier --check ."
   },
   "keywords": [],
   "author": "",
@@ -17,11 +20,16 @@
     "commander": "^15.0.0",
     "smol-toml": "^1.7.0",
     "tsx": "^4.22.4",
-    "typescript": "^6.0.3"
+    "typescript": "^6.0.3",
+    "zod": "^4.4.3"
   },
   "type": "module",
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.13",
+    "eslint": "^9.39.4",
+    "eslint-config-prettier": "^10.1.8",
+    "prettier": "^3.9.4",
+    "typescript-eslint": "^8.62.1",
     "vitest": "^3.2.6"
   }
 }
