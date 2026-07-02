@@ -1,4 +1,4 @@
-import Database from 'better-sqlite3';
+import { Database } from 'bun:sqlite';
 import * as fs from 'node:fs';
 import { parse } from 'smol-toml';
 

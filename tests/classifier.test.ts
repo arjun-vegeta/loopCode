@@ -1,5 +1,7 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect } from 'bun:test';
 import { Classifier } from '../src/classifier.js';
+
+process.env.VITEST = '1';
 
 describe('Classifier', () => {
   it('correctly classifies typo fix as single_agent using Tier 1 rules', () => {

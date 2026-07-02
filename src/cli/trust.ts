@@ -68,7 +68,7 @@ function saveTrustedDirs(dirs: TrustedDir[]) {
 }
 
 export async function checkTrust(cwd: string): Promise<boolean> {
-  if (process.env.VITEST) {
+  if (process.env.VITEST || process.env.BUN_TEST) {
     return true; // Auto-pass for tests
   }
 

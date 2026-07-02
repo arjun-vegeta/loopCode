@@ -1,5 +1,5 @@
 import type { TaskNode, Budget } from '../ir/task.js';
-import Database from 'better-sqlite3';
+import { Database } from 'bun:sqlite';
 
 export interface ModelSelection {
   modelID: string;
@@ -11,7 +11,7 @@ export interface ModelSelection {
 }
 
 export class DynamicRouter {
-  private db?: Database.Database;
+  private db?: Database;
 
   constructor(dbPath?: string) {
     if (dbPath) {

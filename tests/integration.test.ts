@@ -1,15 +1,9 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { Orchestrator } from '../src/orchestrator.js';
-import { Memory } from '../src/memory.js';
-import * as fs from 'node:fs';
-import * as path from 'node:path';
-
-// Mock the Planner to return a specific test plan
-vi.mock('../src/planner.js', () => {
+import { describe, it, expect, mock, beforeEach, afterEach } from 'bun:test';
+mock.module('../src/planner.js', () => {
   return {
-    Planner: vi.fn().mockImplementation(() => {
+    Planner: mock(() => {
       return {
-        planGoal: vi.fn().mockResolvedValue([
+        planGoal: mock().mockResolvedValue([
           {
             id: 'integration-task-1',
             description: 'Write test file',
@@ -33,6 +27,12 @@ vi.mock('../src/planner.js', () => {
     }),
   };
 });
+import { Orchestrator } from '../src/orchestrator.js';
+import { Memory } from '../src/memory.js';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+
+process.env.VITEST = '1';
 
 describe('LoopCode Integration Flow', () => {
   const TEST_DB = 'test_integration.db';
@@ -82,7 +82,7 @@ describe('LoopCode Integration Flow', () => {
     // Mock the OpencodeOrchestrator to write "SUCCESS" to output.txt when executeTask is called
     const mockClient = {
       config: {
-        providers: vi.fn().mockResolvedValue({
+        providers: mock().mockResolvedValue({
           data: {
             default: { model: 'anthropic/claude' },
             providers: [{ state: 'ready' }],
@@ -90,18 +90,18 @@ describe('LoopCode Integration Flow', () => {
         }),
       },
       session: {
-        create: vi.fn().mockResolvedValue({ data: { id: 'test-session' } }),
-        prompt: vi.fn().mockResolvedValue({ data: { info: { text: 'Done' } } }),
-        abort: vi.fn(),
+        create: mock().mockResolvedValue({ data: { id: 'test-session' } }),
+        prompt: mock().mockResolvedValue({ data: { info: { text: 'Done' } } }),
+        abort: mock(),
       },
       event: {
-        subscribe: vi.fn().mockResolvedValue({ stream: [] }),
+        subscribe: mock().mockResolvedValue({ stream: [] }),
       },
     };
 
     const mockOpencode = {
       client: mockClient,
-      executeTask: vi.fn().mockImplementation(async (_task) => {
+      executeTask: mock().mockImplementation(async (_task) => {
         // Mocking the agent file edit operation
         fs.writeFileSync(OUTPUT_FILE, 'SUCCESS', 'utf8');
         return { success: true, message: 'Wrote output file' };

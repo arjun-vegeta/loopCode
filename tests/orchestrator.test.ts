@@ -1,28 +1,20 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { Orchestrator } from '../src/orchestrator.js';
-import { Memory } from '../src/memory.js';
-import { OpencodeOrchestrator } from '../src/opencode.js';
-import { Verifier } from '../src/verifier.js';
-import { MemoryEngine } from '../src/memory/engine.js';
-import * as fs from 'node:fs';
-
-// Mock the dependencies
-vi.mock('../src/opencode.js', () => {
+import { describe, it, expect, mock, beforeEach, afterEach, spyOn } from 'bun:test';
+mock.module('../src/opencode.js', () => {
   return {
-    OpencodeOrchestrator: vi.fn().mockImplementation(() => {
+    OpencodeOrchestrator: mock(() => {
       return {
         client: {},
-        executeTask: vi.fn().mockResolvedValue({ success: true, message: 'Executed' }),
+        executeTask: mock().mockResolvedValue({ success: true, message: 'Executed' }),
       };
     }),
   };
 });
 
-vi.mock('../src/planner.js', () => {
+mock.module('../src/planner.js', () => {
   return {
-    Planner: vi.fn().mockImplementation(() => {
+    Planner: mock(() => {
       return {
-        planGoal: vi.fn().mockImplementation(async (goal: string) => {
+        planGoal: mock().mockImplementation(async (goal: string) => {
           return [
             {
               id: 'mocked-task-id',
@@ -43,13 +35,22 @@ vi.mock('../src/planner.js', () => {
   };
 });
 
-vi.mock('../src/verifier.js', () => {
+mock.module('../src/verifier.js', () => {
   return {
     Verifier: {
-      verifyTask: vi.fn(),
+      verifyTask: mock(),
     },
   };
 });
+
+import { Orchestrator } from '../src/orchestrator.js';
+import { Memory } from '../src/memory.js';
+import { OpencodeOrchestrator } from '../src/opencode.js';
+import { Verifier } from '../src/verifier.js';
+import { MemoryEngine } from '../src/memory/engine.js';
+import * as fs from 'node:fs';
+
+process.env.VITEST = '1';
 
 describe('Orchestrator State Machine & Persistence', () => {
   const TEST_DB = 'test_loopcode.db';
@@ -64,7 +65,7 @@ describe('Orchestrator State Machine & Persistence', () => {
   let planSpy: any = null;
 
   beforeEach(() => {
-    vi.clearAllMocks();
+    mock.clearAllMocks();
     activeOrchestrators = [];
     if (fs.existsSync(TEST_DB)) {
       fs.unlinkSync(TEST_DB);
@@ -300,15 +301,15 @@ describe('Orchestrator State Machine & Persistence', () => {
 
   it('terminates and rolls back workspace when session budget is exceeded', async () => {
     const { CostEngine } = await import('../src/cost/engine.js');
-    getGoalSpentSpy = vi.spyOn(CostEngine.prototype, 'getGoalSpent').mockResolvedValue(20.0);
-    terminateSpy = vi.spyOn(CostEngine.prototype, 'terminateDueToBudget').mockImplementation(() => {
+    getGoalSpentSpy = spyOn(CostEngine.prototype, 'getGoalSpent').mockResolvedValue(20.0);
+    terminateSpy = spyOn(CostEngine.prototype, 'terminateDueToBudget').mockImplementation(() => {
       throw new Error('budget limit reached');
     });
 
     const orchestrator = new Orchestrator(mockOpencode, TEST_DB);
     activeOrchestrators.push(orchestrator);
 
-    runCommandSpy = vi.spyOn(orchestrator, 'runCommand').mockReturnValue('mock-hash');
+    runCommandSpy = spyOn(orchestrator, 'runCommand').mockReturnValue('mock-hash');
 
     await expect(orchestrator.runGoal('Mock Goal')).rejects.toThrow('budget limit reached');
 
@@ -322,13 +323,13 @@ describe('Orchestrator State Machine & Persistence', () => {
     activeOrchestrators.push(orchestrator);
 
     const { LoopDetector } = await import('../src/safety/loop.js');
-    detectSpy = vi.spyOn(LoopDetector.prototype, 'detectOscillation').mockImplementation((sig) => {
+    detectSpy = spyOn(LoopDetector.prototype, 'detectOscillation').mockImplementation((sig) => {
       return sig.phase === 'executing';
     });
-    promptSpy = vi.spyOn(orchestrator as any, 'promptUserForEscalation').mockResolvedValue('replan');
+    promptSpy = spyOn(orchestrator as any, 'promptUserForEscalation').mockResolvedValue('replan');
 
     let callCount = 0;
-    planSpy = vi.spyOn(orchestrator as any, 'handlePlanning').mockImplementation(async (record: any) => {
+    planSpy = spyOn(orchestrator as any, 'handlePlanning').mockImplementation(async (record: any) => {
       callCount++;
       if (callCount > 1) {
         throw new Error('stop loop');

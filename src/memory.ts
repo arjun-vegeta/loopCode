@@ -1,4 +1,4 @@
-import Database from 'better-sqlite3';
+import { Database } from 'bun:sqlite';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import type { VerificationReport } from './types.js';
@@ -31,7 +31,7 @@ export interface SessionRecord {
 }
 
 export class Memory {
-  private db: Database.Database;
+  private db: Database;
 
   constructor(dbPath: string = 'loopcode.db') {
     const dbDir = path.dirname(dbPath);

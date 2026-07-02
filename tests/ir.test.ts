@@ -1,10 +1,12 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect } from 'bun:test';
 import { IRValidator, ValidationError } from '../src/ir/validator.js';
 import type { GoalIR } from '../src/ir/goal.js';
 import type { TaskIR } from '../src/ir/task.js';
 import type { ExecutionIR } from '../src/ir/execution.js';
 import type { VerificationIR } from '../src/ir/verification.js';
 import type { CompletionIR } from '../src/ir/completion.js';
+
+process.env.VITEST = '1';
 
 describe('IRValidator', () => {
   const validGoal: GoalIR = {

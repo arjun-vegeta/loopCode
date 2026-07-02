@@ -1,6 +1,8 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect } from 'bun:test';
 import { Router } from '../src/router.js';
 import type { Task } from '../src/types.js';
+
+process.env.VITEST = '1';
 
 describe('Router', () => {
   const router = new Router();
