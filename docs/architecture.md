@@ -1,4 +1,4 @@
-# LoopCode v1 Architecture Overview
+# LoopCode v2 Architecture Overview
 
 LoopCode is a local-first autonomous software engineering orchestrator built on top of OpenCode. It does not replace OpenCode; rather, it drives OpenCode sessions by acting as the planning, state orchestration, and verification layer.
 
@@ -8,14 +8,18 @@ LoopCode runs in a 3-layer structure relative to your local computer and LLMs:
 
 ```
 ┌─────────────────────────────────────────────┐
-│  LAYER 3: LOOPCODE V1 (TypeScript CLI)      │
+│  LAYER 3: LOOPCODE V2 (TypeScript CLI)      │
 │  ┌─────────┐ ┌─────────┐ ┌─────────┐        │
-│  │ State   │ │ Task    │ │ Verify  │        │
-│  │ Machine │ │ Contract│ │ Engine  │        │
+│  │ State   │ │ Classifier│ │ Verify  │        │
+│  │ Machine │ │ Engine  │ │ Engine  │        │
 │  └─────────┘ └─────────┘ └─────────┘        │
 │  ┌─────────┐ ┌─────────┐ ┌─────────┐        │
-│  │ SQLite  │ │ Static  │ │ Cost    │        │
-│  │ Store   │ │ Router  │ │ Tracker │        │
+│  │ SQLite  │ │ Dynamic │ │ Cost &  │        │
+│  │ Store   │ │ Router  │ │ Budget  │        │
+│  └─────────┘ └─────────┘ └─────────┘        │
+│  ┌─────────┐ ┌─────────┐ ┌─────────┐        │
+│  │ Context │ │ Worktree│ │ Loop    │        │
+│  │ Compres.│ │ Sched.  │ │ Detector│        │
 │  └─────────┘ └─────────┘ └─────────┘        │
 └─────────────────────────────────────────────┘
                       │
@@ -42,20 +46,22 @@ LoopCode runs in a 3-layer structure relative to your local computer and LLMs:
 
 - **Layer 1 (User Environment)**: The local file system, Git repository, and the LLM API keys provided by the user.
 - **Layer 2 (OpenCode Runtime)**: Manages model integrations, runs specific tools (file editing, terminal commands, web search), and exposes an API surface.
-- **Layer 3 (LoopCode)**: Decomposes natural language goals, coordinates execution task-by-task, runs local code checks (compile/test/lint), and tracks state.
+- **Layer 3 (LoopCode v2)**: Decomposes natural language goals, coordinates execution task-by-task, runs local code checks (compile/test/lint), and tracks state with advanced safety and cost bounds.
 
 ## Module Boundaries
 
-The project files are strictly structured as follows:
+The project files are structured as follows:
 
-- **`index.ts`**: CLI Entry point. Handled via `commander`. Resolves setup configs, CLI flags, and coordinates start/resume actions.
-- **`opencode.ts`**: Wrapper for `@opencode-ai/sdk`. Manages ephemeral server spawning, pre-flight check logic, execution timeouts, and session cancellations.
-- **`orchestrator.ts`**: Core state machine. Moves the orchestrator loop through transitions (planning, executing, verifying, done, failed).
-- **`planner.ts`**: Handles goal decomposition. Prompt-engineers task plans and enforces structured output via OpenCode's JSON Schema prompt configuration.
-- **`task.ts`**: Task validation contract. Enforces structural properties of task declarations and logs sequential file-conflict warnings.
-- **`verifier.ts`**: Run commands locally to check if a task met verification criteria (Layers 1, 2, and 3).
-- **`router.ts`**: Handles static model routing based on explicit task categories.
-- **`memory.ts`**: Interface for `better-sqlite3`. Instantiates tables using schema files, logs state transitions, and manages task outputs.
-- **`cost.ts`**: Tracks execution pricing in USD.
-- **`config.ts`**: TOML configuration parser.
-- **`types.ts`**: Houses all shared data contracts.
+- **`src/index.ts`**: CLI Entry point. Handled via `commander`. Resolves configuration files, flags, and coordinates start/resume actions.
+- **`src/opencode.ts`**: Wrapper for `@opencode-ai/sdk`. Manages ephemeral server spawning, checks, execution timeouts, and session cancellations.
+- **`src/orchestrator.ts`**: Core state machine. Directs transitions (planning, executing, verifying, done, failed) using V2 safety engines.
+- **`src/classifier.ts`**: Fast regex and heuristic analyzer dividing simple tasks (Single-Agent path) from complex ones (Full-Loop path).
+- **`src/router/dynamic.ts`**: Dynamic model routing using latency, input/output complexity, and budget limits.
+- **`src/router/portfolio.ts`**: Portfolio constants for 2026 models (Claude Fable, Gemini 3.5, Opus 4.8).
+- **`src/cost/engine.ts`**: Enforces spend bounds and terminates the process with **exit code 77** on breach.
+- **`src/safety/loop.ts`**: State signature-based infinite loop and oscillation detector.
+- **`src/context/engine.ts`**: Whitespace/comment code compressor and hierarchical summarizer.
+- **`src/scheduler/worktree.ts`**: Git worktree manager for sandboxing, topological scheduler, and merge conflict checks.
+- **`src/memory/engine.ts`**: SQLite memory manager storing logs, cache entries, and performance records.
+- **`src/agents/`**: Planner, Researcher, Engineer, Reviewer, and Verifier roles.
+- **`src/verifier.ts`**: Runs commands locally to verify tasks (Layers 1, 2, and 3).
