@@ -1,9 +1,11 @@
-import { describe, it, expect, beforeAll } from 'vitest';
+import { describe, it, expect, beforeAll } from 'bun:test';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { TreeSitterParser } from '../src/knowledge/treesitter.js';
 import { CodeIndexer } from '../src/knowledge/indexer.js';
 import { LSPClient } from '../src/knowledge/lsp.js';
+
+process.env.VITEST = '1';
 
 describe('Code Knowledge Engine', () => {
   const testFile = path.join(__dirname, 'fixtures', 'sample.ts');

@@ -1,6 +1,8 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect } from 'bun:test';
 import { validatePlan } from '../src/task.js';
 import type { Task } from '../src/types.js';
+
+process.env.VITEST = '1';
 
 describe('validatePlan', () => {
   it('allows sequential tasks modifying the same file but raises warning', () => {

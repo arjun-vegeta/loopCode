@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
 import { isDangerousDirectory, checkTrust } from '../src/cli/trust.js';
 import { detectTerminal } from '../src/cli/terminal-setup.js';
 import { renderDiff } from '../src/cli/diff.js';
@@ -37,6 +37,7 @@ describe('LoopCode v3 CLI Features', () => {
     });
 
     it('should automatically trust in test/vitest environments', async () => {
+      process.env.VITEST = '1';
       const trusted = await checkTrust('/untrusted/path');
       expect(trusted).toBe(true);
     });
@@ -127,7 +128,7 @@ describe('LoopCode v3 CLI Features', () => {
 
       // Delete Session
       memory.deleteSession(sessionId);
-      expect(memory.getSession(sessionId)).toBeUndefined();
+      expect(memory.getSession(sessionId)).toBeNull();
 
       memory.close();
     });

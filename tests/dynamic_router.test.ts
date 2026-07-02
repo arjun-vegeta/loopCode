@@ -1,8 +1,10 @@
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll } from 'bun:test';
 import { DynamicRouter } from '../src/router/dynamic.js';
 import type { TaskNode } from '../src/ir/task.js';
-import Database from 'better-sqlite3';
-import * as fs from 'fs';
+import { Database } from 'bun:sqlite';
+import * as fs from 'node:fs';
+
+process.env.VITEST = '1';
 
 describe('DynamicRouter', () => {
   const dbPath = 'test_performance.db';

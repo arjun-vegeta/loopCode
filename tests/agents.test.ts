@@ -1,15 +1,6 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { PlannerAgent } from '../src/agents/planner.js';
-import { ResearcherAgent } from '../src/agents/researcher.js';
-import { EngineerAgent } from '../src/agents/engineer.js';
-import { ReviewerAgent } from '../src/agents/reviewer.js';
-import { VerifierAgent } from '../src/agents/verifier.js';
-import type { GoalIR } from '../src/ir/goal.js';
-import type { TaskNode } from '../src/ir/task.js';
-import type { ExecutionIR } from '../src/ir/execution.js';
-// Mock child_process execSync to avoid running actual git/npm commands on the repo
-vi.mock('child_process', () => ({
-  execSync: vi.fn().mockImplementation((cmd) => {
+import { describe, it, expect, mock, beforeEach } from 'bun:test';
+mock.module('child_process', () => ({
+  execSync: mock((cmd: string) => {
     if (cmd.includes('git rev-parse --abbrev-ref')) return 'main';
     if (cmd.includes('git rev-parse')) return 'mock-git-commit-hash';
     if (cmd.includes('git status')) return ' M db/schema.sql'; // mock dirty status
@@ -18,15 +9,25 @@ vi.mock('child_process', () => ({
     return '';
   }),
 }));
+import { PlannerAgent } from '../src/agents/planner.js';
+import { ResearcherAgent } from '../src/agents/researcher.js';
+import { EngineerAgent } from '../src/agents/engineer.js';
+import { ReviewerAgent } from '../src/agents/reviewer.js';
+import { VerifierAgent } from '../src/agents/verifier.js';
+import type { GoalIR } from '../src/ir/goal.js';
+import type { TaskNode } from '../src/ir/task.js';
+import type { ExecutionIR } from '../src/ir/execution.js';
+
+process.env.VITEST = '1';
 describe('LoopCode Agents', () => {
   let mockClient: any;
 
   beforeEach(() => {
     mockClient = {
       session: {
-        create: vi.fn().mockResolvedValue({ data: { id: 'test-session-id' } }),
-        prompt: vi.fn(),
-        delete: vi.fn().mockResolvedValue({}),
+        create: mock().mockResolvedValue({ data: { id: 'test-session-id' } }),
+        prompt: mock(),
+        delete: mock().mockResolvedValue({}),
       },
     };
   });

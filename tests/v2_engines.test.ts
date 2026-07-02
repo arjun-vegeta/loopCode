@@ -1,13 +1,7 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import * as fs from 'node:fs';
-import { CostEngine } from '../src/cost/engine.js';
-import { LoopDetector } from '../src/safety/loop.js';
-import { ContextEngine } from '../src/context/engine.js';
-import { GitWorktreeScheduler } from '../src/scheduler/worktree.js';
-
-vi.mock('child_process', () => {
+import { describe, it, expect, beforeEach, afterEach, mock, spyOn } from 'bun:test';
+mock.module('child_process', () => {
   return {
-    execSync: vi.fn().mockImplementation((cmd) => {
+    execSync: mock((cmd: string) => {
       if (cmd.includes('git diff')) {
         return 'src/opencode.ts\n';
       }
@@ -15,6 +9,13 @@ vi.mock('child_process', () => {
     }),
   };
 });
+import * as fs from 'node:fs';
+import { CostEngine } from '../src/cost/engine.js';
+import { LoopDetector } from '../src/safety/loop.js';
+import { ContextEngine } from '../src/context/engine.js';
+import { GitWorktreeScheduler } from '../src/scheduler/worktree.js';
+
+process.env.VITEST = '1';
 
 describe('V2 CostEngine', () => {
   const TEST_DB = 'test_v2_cost.db';
@@ -45,7 +46,7 @@ describe('V2 CostEngine', () => {
 
   it('triggers budget termination with exit code 77', () => {
     const engine = new CostEngine(TEST_DB);
-    const exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => {
+    const exitSpy = spyOn(process, 'exit').mockImplementation(() => {
       throw new Error('exit called');
     });
 
