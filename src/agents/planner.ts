@@ -32,18 +32,28 @@ export class PlannerAgent {
 You are a task planner for a software engineering project.
 Break down the overall Goal IR into a sequence of concrete, incremental, sequential TaskNodes.
 
-Goal IR:
-${JSON.stringify(goalIR, null, 2)}
-
-Project context/files available:
-${projectContext}
-${failureContext ? `\nPREVIOUS ATTEMPT FAILURE CONTEXT:\nThe previous execution failed with the following errors. Please adjust your plan to avoid these issues:\n${failureContext}\n` : ''}
 Rules:
 1. Tasks must run sequentially. Order them logically.
 2. Each task must have concrete verification steps (compile, test, lint, security, review).
 3. Assign each task a structured category: "test" | "docs" | "security" | "refactor" | "feature" | "fix" | "other".
 4. Assign each task a specific agent role: "planner" | "researcher" | "engineer" | "reviewer" | "verifier".
-5. All tasks must return a JSON array matching the requested schema.
+5. For tasks that can run in parallel (same batch), you MUST generate strict, non-overlapping \`writeAllowlist\` arrays to prevent Git merge conflicts.
+6. All tasks must return a JSON array matching the requested schema.
+
+Project context/files available:
+${projectContext}
+
+Goal IR:
+${JSON.stringify(goalIR, null, 2)}
+${
+  failureContext
+    ? `\
+PREVIOUS ATTEMPT FAILURE CONTEXT:\
+The previous execution failed with the following errors. Please adjust your plan to avoid these issues:\
+${failureContext}\
+`
+    : ''
+}
 `;
 
     // Define the Zod schema properties as JSON Schema

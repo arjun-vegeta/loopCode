@@ -18,7 +18,11 @@ export class VerifierAgent {
   /**
    * Run the 5-layer verification pipeline on a completed task.
    */
-  async verifyTask(taskNode: TaskNode, execIR?: ExecutionIR, testCoverageBefore: number = 100): Promise<VerificationIR> {
+  async verifyTask(
+    taskNode: TaskNode,
+    execIR?: ExecutionIR,
+    testCoverageBefore: number = 100,
+  ): Promise<VerificationIR> {
     if (!execIR) {
       const memory = new MemoryEngine();
       const execJson = memory.getTaskExecution(taskNode.id);
@@ -123,28 +127,92 @@ export class VerifierAgent {
     let securityPassed = true;
     let securityEvidence = 'Security check clean.';
     try {
-      // Local regex scan for credentials, secrets, or eval
-      const suspiciousRegex = /(eval\(|system\(|exec\()/i;
-      const statusOutput = execSync('git diff --name-only HEAD~1', { cwd: worktreePath }).toString();
-      const files = statusOutput.split('\n').filter(Boolean);
-      for (const file of files) {
-        if (file.endsWith('.ts') || file.endsWith('.js')) {
-          try {
-            const content = fs.readFileSync(path.join(worktreePath, file), 'utf8');
-            if (suspiciousRegex.test(content)) {
-              securityPassed = false;
-              securityEvidence = `Vulnerability found: Suspicious code patterns (eval, system, exec) in ${file}`;
-              overallPass = false;
-              retryHint = securityEvidence;
-              break;
+      if (!process.env.VITEST) {
+        // Attempt external scanner (semgrep / trivy) if available
+        try {
+          // Attempt Semgrep
+          const res = execSync('semgrep scan --config auto --json', {
+            cwd: worktreePath,
+            stdio: ['ignore', 'pipe', 'ignore'],
+          }).toString();
+          const parsed = JSON.parse(res);
+          if (parsed && parsed.results && parsed.results.length > 0) {
+            securityPassed = false;
+            securityEvidence = `Semgrep found ${parsed.results.length} vulnerability(ies).`;
+            overallPass = false;
+            retryHint = securityEvidence;
+          }
+        } catch (e: any) {
+          if (e.status === 1) {
+            // Semgrep exited with findings
+            securityPassed = false;
+            securityEvidence = `Semgrep found vulnerabilities.`;
+            overallPass = false;
+            retryHint = securityEvidence;
+          } else {
+            // Semgrep not installed or failed to run, fallback to Trivy or local regex
+            try {
+              const res = execSync('trivy fs . --format json', {
+                cwd: worktreePath,
+                stdio: ['ignore', 'pipe', 'ignore'],
+              }).toString();
+              const parsed = JSON.parse(res);
+              if (
+                parsed &&
+                parsed.Results &&
+                parsed.Results.some((r: any) => r.Vulnerabilities && r.Vulnerabilities.length > 0)
+              ) {
+                securityPassed = false;
+                securityEvidence = `Trivy found vulnerabilities.`;
+                overallPass = false;
+                retryHint = securityEvidence;
+              }
+            } catch (err: any) {
+              if (err.status === 1) {
+                securityPassed = false;
+                securityEvidence = `Trivy found vulnerabilities.`;
+                overallPass = false;
+                retryHint = securityEvidence;
+              } else {
+                // Both missing/failed, use regex fallback
+                throw new Error('External scanners unavailable');
+              }
             }
-          } catch (fileErr) {
-            // ignore
           }
         }
+      } else {
+        throw new Error('Test environment');
       }
     } catch (err) {
-      // ignore
+      // Local regex scan fallback for credentials, secrets, or eval
+      const suspiciousRegex = /(eval\(|system\(|exec\()/i;
+      try {
+        const statusOutput = execSync('git diff --name-only HEAD~1', { cwd: worktreePath }).toString();
+        const files = statusOutput
+          .split(
+            '\
+',
+          )
+          .filter(Boolean);
+        for (const file of files) {
+          if (file.endsWith('.ts') || file.endsWith('.js')) {
+            try {
+              const content = fs.readFileSync(path.join(worktreePath, file), 'utf8');
+              if (suspiciousRegex.test(content)) {
+                securityPassed = false;
+                securityEvidence = `Vulnerability found: Suspicious code patterns (eval, system, exec) in ${file}`;
+                overallPass = false;
+                retryHint = securityEvidence;
+                break;
+              }
+            } catch (fileErr) {
+              // ignore
+            }
+          }
+        }
+      } catch (e) {
+        // ignore
+      }
     }
 
     layers.push({
