@@ -1,9 +1,9 @@
-import Database from 'better-sqlite3';
+import { Database } from 'bun:sqlite';
 import * as sqliteVec from 'sqlite-vec';
 import { FlagEmbedding, EmbeddingModel } from 'fastembed';
 
 export class SemanticMemory {
-  private db: Database.Database;
+  private db: Database;
   private embedder?: FlagEmbedding;
 
   constructor(dbPath: string) {
