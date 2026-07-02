@@ -1,6 +1,6 @@
-# Configuration, Auth, & CLI Reference
+# Configuration, Auth, CLI & Packaging Reference
 
-LoopCode exposes a simple command-line interface and configuration model.
+LoopCode exposes a simple command-line interface, configuration model, and standalone executable bundle.
 
 ## Configuration File (`~/.loopcode/config.toml`)
 
@@ -62,3 +62,15 @@ node dist/index.js [goal] [options]
 - `0`: Goal completed successfully (all tasks in the plan passed verification).
 - `1`: Goal failed (fatal error, plan validation fail, or max task retries exceeded).
 - `77`: Budget exceeded (CostEngine limit breached, execution aborted).
+
+---
+
+## Standalone Binary Packaging
+
+To generate a self-contained executable `./loopcode` containing the Node.js runtime and bundled source files:
+
+```bash
+npm run package
+```
+
+This compiles TypeScript files, bundles modules as ESM (excluding native dependencies like `better-sqlite3` and `tree-sitter` which are resolved dynamically), embeds them as a binary asset inside the Node.js SEA (Single Executable Application) container, and ad-hoc signs the binary.

@@ -1,6 +1,6 @@
-# Verification Engine
+# Verification Engine & Interactive Approvals
 
-LoopCode v2 enforces code correctness and prevents regressions by running sequential verification checks locally, bypassing unreliable self-assessments.
+LoopCode enforces code correctness and prevents regressions by running sequential verification checks locally and providing manual interactive override triggers.
 
 ## 5-Layer Verification Flow
 
@@ -38,18 +38,27 @@ The verifier executes steps defined in each task's contract sequentially. If a c
 
 ---
 
-## Fast-Track Task Verification
+## Interactive Approvals & Editor Integrations
 
-For simple tasks running under the **Single-Agent Path** (where full goal planning is bypassed), LoopCode automatically provisions a default **Layer 1 Compilation Check** using an echo command or basic type checker:
+In addition to static verification layers, LoopCode provides human-in-the-loop approvals before operations are executed:
 
-```typescript
-verification: [
-  {
-    type: 'compile',
-    command: 'echo "mock compile"',
-    expectedExitCode: 0,
-  },
-];
-```
+### Shell Command Approvals
 
-This guarantees that even simple tasks conform to our standard state machine validation schema and yield verification outputs stored in `task_results`.
+When running in `plan` or `acceptEdits` mode, shell commands require approval:
+
+- **Destructive Commands Rule**: Commands containing destructive keys (e.g., `rm `, `rmdir`, `mkfs`, `dd `, `git push --force`, `git reset --hard`, `git clean -fd`) **ALWAYS** require confirmation, bypassing `auto` mode settings.
+- **Acceptance Choices**: Options include `Yes, run this time`, `Yes, always allow this command in this session`, and `No, skip`.
+
+### File Edit Preview & $EDITOR Integration
+
+In `plan` mode, proposed code edits display a colorized git diff. Users can choose to:
+
+1. **Accept the edit**
+2. **Reject the edit**
+3. **[E] Edit in $EDITOR**: Launches the terminal editor of choice (e.g., `nano`, `vim`, `emacs` configured via `$EDITOR`) directly on the target file, letting the developer manually tweak changes before making a final acceptance decision.
+
+---
+
+## IDE Terminal Screen-glitch fixes
+
+Under the `/terminal-setup` command, LoopCode writes configuration file overrides to the target editor (VS Code, Cursor). This routine sets `"terminal.integrated.gpuAcceleration": "off"`. This turns off GPU acceleration in the integrated terminal emulator, eliminating screen rendering artifacts or character overlaps common to complex Ink/react terminal interfaces.

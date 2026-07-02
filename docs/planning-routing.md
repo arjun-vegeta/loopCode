@@ -59,3 +59,7 @@ Instead of static routes, the `DynamicRouter` evaluates the optimal 2026 model b
 
 - **Frontier / Strong**: `claude-4.8-opus`, `claude-5-sonnet`
 - **Efficient / Budget**: `gemini-3.5-flash`, `deepseek-v4-pro`
+
+### Live Overrides (Model Picker)
+
+During execution, users can press `Ctrl+M` to open the interactive model picker to dynamically change model mapping overrides, instantly updating `~/.loopcode/config.toml` without restarting the daemon.

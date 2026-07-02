@@ -1,6 +1,6 @@
-# State Machine & Safety Policies
+# State Machine, Sessions & Safety Policies
 
-The core execution of LoopCode v2 is managed by a state machine that handles planning, execution, verification, and failure feedback loop cascades.
+The core execution of LoopCode is managed by a state machine that handles planning, execution, verification, and failure feedback loop cascades, with real-time UI logging and session management.
 
 ```
 [PLANNING] ── plan generated ──> [EXECUTING] ── retry < MAX_RETRIES ──> [EXECUTING]
@@ -64,12 +64,16 @@ Before spawning any model execution, the `CostEngine` validates estimated costs 
 process.exit(77);
 ```
 
-This allows external wrappers or schedulers to catch budget exhaustion explicitly while ensuring the workspace remains clean.
+### 3. First-Run Trust Verification & Dangerous Paths
 
-### 3. SQLite Persistence & Crash Recovery
+To protect the host operating system from catastrophic commands (e.g. `rm -rf /`):
 
-Every transition is saved to `loopcode.db`. In case of a system crash, you can resume execution using:
+1. **Trust Verification**: Spawns a select prompt on the first run in any directory, caching approved paths in `~/.loopcode/trusted_dirs.json`.
+2. **Dangerous Directory block**: Explicitly blocks execution if the current directory is a system root path (e.g. `/`, `/usr`, `/System`) or the parent home directory (`~/` directly).
 
-```bash
-node dist/index.js --resume <task-uuid>
-```
+### 4. SQLite Persistence & Session Management
+
+Every transition and session is saved to `loopcode.db`.
+
+- **Session Picking**: Use `Ctrl+S` or `/resume <session-id>` to switch to, pause, rename, or delete past session tasks.
+- **Storage Indexes**: Migration indexes `idx_sessions_status`, `idx_sessions_name`, and `idx_sessions_activity` prevent latency bottlenecks on databases with thousands of logs.
