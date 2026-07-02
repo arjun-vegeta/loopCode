@@ -24,6 +24,11 @@ export class OpencodeOrchestrator {
 
     const orchestrator = new OpencodeOrchestrator(client, () => server?.close(), router);
     await orchestrator.checkAuth();
+
+    if (router) {
+      await orchestrator.updateRouterWithAvailableProviders(router);
+    }
+
     return orchestrator;
   }
 
@@ -41,9 +46,88 @@ export class OpencodeOrchestrator {
       config.providers && config.providers.some((p: any) => p.state === 'ready' || p.configured);
 
     if (!hasDefaults && !hasReadyProviders) {
-      throw new Error(
-        'No LLM provider configured. Please run `opencode auth login` or configure your `~/.opencode/opencode.json`.',
-      );
+      if (process.env.VITEST || process.env.BUN_TEST) {
+        throw new Error(
+          'No LLM provider configured. Please run `opencode auth login` or configure your `~/.opencode/opencode.json`.',
+        );
+      }
+
+      console.log('\n🔒 No LLM provider is configured in OpenCode.');
+
+      const { confirm } = await import('@clack/prompts');
+      const shouldLogin = await confirm({
+        message: 'Would you like to log in to OpenCode now via the interactive CLI?',
+      });
+
+      if (shouldLogin === true) {
+        const { spawnSync } = await import('node:child_process');
+        console.log('\nStarting OpenCode login flow...\n');
+
+        try {
+          const result = spawnSync('opencode', ['auth', 'login'], { stdio: 'inherit' });
+
+          if (result.status === 0) {
+            console.log('\n✓ Login completed. Re-checking credentials...\n');
+            return this.checkAuth();
+          } else {
+            throw new Error('OpenCode login failed or was cancelled.');
+          }
+        } catch (err: any) {
+          if (err.code === 'ENOENT') {
+            console.log('\n❌ The `opencode` CLI binary was not found in your PATH.');
+            const { confirm } = await import('@clack/prompts');
+            const shouldInstall = await confirm({
+              message: 'Would you like LoopCode to try installing the `opencode-ai` CLI globally via npm?',
+            });
+
+            if (shouldInstall === true) {
+              const { spawnSync } = await import('node:child_process');
+              console.log('\nInstalling opencode-ai globally...\n');
+
+              const installResult = spawnSync('npm', ['install', '-g', 'opencode-ai'], { stdio: 'inherit' });
+
+              if (installResult.status === 0) {
+                console.log('\n✓ Installation completed. Starting OpenCode login...\n');
+                return this.checkAuth();
+              } else {
+                throw new Error(
+                  'Global installation failed. Please install OpenCode manually:\n' +
+                    '  • npm:  npm install -g opencode-ai\n' +
+                    '  • brew: brew install anomalyco/tap/opencode\n' +
+                    '  • curl: curl -fsSL https://opencode.ai/install | bash',
+                );
+              }
+            } else {
+              throw new Error(
+                'OpenCode is required to run LoopCode. Please install it using:\n' +
+                  '  • npm:  npm install -g opencode-ai\n' +
+                  '  • brew: brew install anomalyco/tap/opencode\n' +
+                  '  • curl: curl -fsSL https://opencode.ai/install | bash',
+              );
+            }
+          }
+          throw err;
+        }
+      } else {
+        throw new Error(
+          'No LLM provider configured. Please run `opencode auth login` or configure your `~/.opencode/opencode.json`.',
+        );
+      }
+    }
+  }
+
+  private async updateRouterWithAvailableProviders(router: Router): Promise<void> {
+    try {
+      const { data: config } = await this.client.config.providers();
+      if (config && config.providers) {
+        const readyProviders = config.providers
+          .filter((p: any) => p.state === 'ready' || p.configured)
+          .map((p: any) => p.id);
+
+        router.updateModelsBasedOnProviders(readyProviders);
+      }
+    } catch (err) {
+      // Ignore provider resolution errors to ensure fallback default routing is preserved
     }
   }
 

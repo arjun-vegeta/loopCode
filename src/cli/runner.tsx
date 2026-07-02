@@ -33,6 +33,26 @@ export async function runCli(
     process.exit(1);
   }
 
+  // 2. Load Config & Router
+  const config = ConfigManager.loadConfig();
+  const routerConfig: any = {};
+  if (config.model) {
+    if (config.model.default) routerConfig.default = ConfigManager.resolveModelRoute(config.model.default);
+    if (config.model.planning) routerConfig.planning = ConfigManager.resolveModelRoute(config.model.planning);
+    if (config.model.verification)
+      routerConfig.verification = ConfigManager.resolveModelRoute(config.model.verification);
+  }
+  const router = new Router(routerConfig);
+
+  // 3. Initialize OpenCode (checks authentication/provider setup before TUI renders)
+  let opencodeInstance: OpencodeOrchestrator;
+  try {
+    opencodeInstance = await OpencodeOrchestrator.initialize(router);
+  } catch (err: any) {
+    console.error(`\n❌ Initialization Error: ${err.message}`);
+    process.exit(1);
+  }
+
   const memory = new Memory(dbPath);
   const sessions = memory.getSessions();
 
@@ -54,23 +74,11 @@ export async function runCli(
 
     // Initial setup to run orchestrator
     useEffect(() => {
-      const config = ConfigManager.loadConfig();
-      const routerConfig: any = {};
-      if (config.model) {
-        if (config.model.default) routerConfig.default = ConfigManager.resolveModelRoute(config.model.default);
-        if (config.model.planning) routerConfig.planning = ConfigManager.resolveModelRoute(config.model.planning);
-        if (config.model.verification)
-          routerConfig.verification = ConfigManager.resolveModelRoute(config.model.verification);
-      }
-      const router = new Router(routerConfig);
-
-      let opencode: OpencodeOrchestrator | null = null;
       let orchestrator: Orchestrator | null = null;
 
       const execute = async () => {
         try {
-          opencode = await OpencodeOrchestrator.initialize(router);
-          orchestrator = new Orchestrator(opencode, dbPath, router);
+          orchestrator = new Orchestrator(opencodeInstance, dbPath, router);
 
           // Setup Orchestrator listener
           orchestrator.listener = {
@@ -102,16 +110,21 @@ export async function runCli(
           }
         } catch (err: any) {
           console.error(`Execution failed: ${err.message}`);
-        } finally {
-          if (opencode) {
-            opencode.close();
-          }
         }
       };
 
       if (targetGoal || targetTaskId) {
         execute();
       }
+
+      // Cleanup: Close OpenCode server on component unmount
+      return () => {
+        try {
+          opencodeInstance.close();
+        } catch (err) {
+          // Ignore close errors
+        }
+      };
     }, []);
 
     // Handle prompt/slash commands
