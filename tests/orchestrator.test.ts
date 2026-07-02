@@ -1,14 +1,5 @@
 import { describe, it, expect, mock, beforeEach, afterEach, spyOn } from 'bun:test';
-mock.module('../src/opencode.js', () => {
-  return {
-    OpencodeOrchestrator: mock(() => {
-      return {
-        client: {},
-        executeTask: mock().mockResolvedValue({ success: true, message: 'Executed' }),
-      };
-    }),
-  };
-});
+import { OpencodeOrchestrator } from '../src/opencode.js';
 
 mock.module('../src/planner.js', () => {
   return {
@@ -71,6 +62,8 @@ describe('Orchestrator State Machine & Persistence', () => {
       fs.unlinkSync(TEST_DB);
     }
     mockOpencode = new (OpencodeOrchestrator as any)();
+    mockOpencode.client = {};
+    mockOpencode.executeTask = mock().mockResolvedValue({ success: true, message: 'Executed' });
   });
 
   afterEach(() => {
