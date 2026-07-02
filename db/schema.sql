@@ -84,16 +84,31 @@ CREATE TABLE IF NOT EXISTS project_memory (
 );
 
 -- Code Graph (structural navigation)
-CREATE TABLE IF NOT EXISTS code_graph (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  symbol_name TEXT NOT NULL,
-  symbol_type TEXT NOT NULL,     -- 'function', 'class', 'interface', 'variable', etc.
+CREATE TABLE IF NOT EXISTS code_graph_nodes (
+  id TEXT PRIMARY KEY,
   file_path TEXT NOT NULL,
-  line_start INTEGER NOT NULL,
-  line_end INTEGER NOT NULL,
+  name TEXT NOT NULL,
+  type TEXT NOT NULL,
+  line_start INTEGER,
+  line_end INTEGER,
   signature TEXT,
   docstring TEXT,
-  parent_id INTEGER REFERENCES code_graph(id)
+  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS code_graph_edges (
+  source_id TEXT,
+  target_id TEXT,
+  relationship TEXT,
+  PRIMARY KEY (source_id, target_id, relationship)
+);
+
+CREATE VIRTUAL TABLE IF NOT EXISTS code_search USING fts5(
+  id UNINDEXED,
+  file_path,
+  name,
+  signature,
+  docstring
 );
 
 -- Local Semantic Cache & Prompt cache
