@@ -51,17 +51,19 @@ const sig = {
 };
 ```
 
-If an identical state signature is encountered twice (indicating no progress is being made), the execution is immediately aborted to prevent runaway LLM costs.
+If an identical state signature is encountered twice (indicating no progress is being made), the execution is paused. LoopCode will present an interactive terminal prompt asking the user for manual guidance. If provided, the guidance is appended to the replan request; otherwise, the execution aborts to prevent runaway LLM costs.
 
 ### 2. Budget Enforcement
 
-Before spawning any model execution, the `CostEngine` validates estimated costs. If a breach is detected, it terminates the CLI session with a custom **exit code 77**:
+Before spawning any model execution, the `CostEngine` validates estimated costs against limits in `config.toml`. If a breach is detected:
+1. The `GitWorktreeScheduler` runs `git reset --hard` to rollback all uncommitted changes.
+2. It terminates the CLI session with a custom **exit code 77**.
 
 ```typescript
 process.exit(77);
 ```
 
-This allows external wrappers or schedulers to catch budget exhaustion explicitly.
+This allows external wrappers or schedulers to catch budget exhaustion explicitly while ensuring the workspace remains clean.
 
 ### 3. SQLite Persistence & Crash Recovery
 
