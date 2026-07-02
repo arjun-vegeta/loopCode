@@ -127,7 +127,7 @@ export function Dashboard({
       {/* Header */}
       <Box justifyContent="space-between" borderStyle="single" borderColor="cyan" paddingX={1}>
         <Text bold color="cyan">
-          LoopCode v3.0.0
+          LoopCode v1.0.0
         </Text>
         <Text dimColor>Goal: {goalTitle || 'None'}</Text>
         <Text color={costColor} bold={costInverse} inverse={costInverse}>
