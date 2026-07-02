@@ -29,7 +29,7 @@ You can install LoopCode globally using the standard installer, the npm global p
 **1. Standalone Binary Installer (Recommended)**
 
 ```bash
-curl -fsSL https://loopcode.ai/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/arjun-vegeta/loopCode/main/install.sh | bash
 ```
 
 **2. Global NPM Fallback (For environments without curl/bash access)**
