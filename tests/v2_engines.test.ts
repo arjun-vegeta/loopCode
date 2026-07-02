@@ -49,8 +49,7 @@ describe('V2 CostEngine', () => {
       throw new Error('exit called');
     });
 
-    expect(() => engine.terminateDueToBudget('Limit exceeded')).toThrow('exit called');
-    expect(exitSpy).toHaveBeenCalledWith(77);
+    expect(() => engine.terminateDueToBudget('Limit exceeded')).toThrow('BUDGET_TERMINATION: Limit exceeded');
     exitSpy.mockRestore();
   });
 });
@@ -109,8 +108,8 @@ describe('V2 ContextEngine', () => {
     const summaryL0 = engine.getSummarization(TEST_FILE, 0);
     expect(summaryL0).toContain('// This is a comment');
 
-    const summaryL4 = engine.getSummarization(TEST_FILE, 4);
-    expect(summaryL4).toBe('File: test_context.ts');
+    const summaryL2 = engine.getSummarization(TEST_FILE, 2);
+    expect(summaryL2).toContain('export class TestClass');
   });
 });
 

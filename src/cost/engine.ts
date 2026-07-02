@@ -1,4 +1,6 @@
 import Database from 'better-sqlite3';
+import * as fs from 'node:fs';
+import { parse } from 'smol-toml';
 
 export interface BudgetLimit {
   maxCostUsd: number;
@@ -10,10 +12,28 @@ export class CostEngine {
   private dbPath: string;
   private goalBudget: number = 10.0;
   private taskBudget: number = 2.0;
+  private monthlyBudget: number = 100.0;
 
   constructor(dbPath: string = 'loopcode.db') {
     this.dbPath = dbPath;
+    this.loadConfig();
     this.initializeTable();
+  }
+
+  private loadConfig() {
+    try {
+      if (fs.existsSync('config.toml')) {
+        const tomlStr = fs.readFileSync('config.toml', 'utf8');
+        const config = parse(tomlStr) as any;
+        if (config.budgets) {
+          this.monthlyBudget = config.budgets.monthly || this.monthlyBudget;
+          this.goalBudget = config.budgets.goal || this.goalBudget;
+          this.taskBudget = config.budgets.task || this.taskBudget;
+        }
+      }
+    } catch (e) {
+      console.error(`[CostEngine] Failed to load config.toml:`, e);
+    }
   }
 
   private initializeTable() {
@@ -74,11 +94,33 @@ export class CostEngine {
     }
   }
 
+  async getMonthlySpent(): Promise<number> {
+    const db = this.getDb();
+    try {
+      const row = db
+        .prepare("SELECT SUM(cost_spent) as spent FROM cost_log WHERE created_at >= date('now', '-30 days')")
+        .get() as any;
+      return row?.spent || 0.0;
+    } finally {
+      db.close();
+    }
+  }
+
+  async getTaskSpent(taskId: string): Promise<number> {
+    const db = this.getDb();
+    try {
+      const row = db.prepare('SELECT SUM(cost_spent) as spent FROM cost_log WHERE task_id = ?').get(taskId) as any;
+      return row?.spent || 0.0;
+    } finally {
+      db.close();
+    }
+  }
+
   /**
-   * Hard budget termination with custom exit code 77.
+   * Throw an error on budget termination instead of hard crash.
    */
   terminateDueToBudget(message: string): never {
     console.error(`[CostEngine] BUDGET TERMINATION: ${message}`);
-    process.exit(77);
+    throw new Error(`BUDGET_TERMINATION: ${message}`);
   }
 }

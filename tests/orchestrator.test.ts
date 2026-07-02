@@ -3,6 +3,7 @@ import { Orchestrator } from '../src/orchestrator.js';
 import { Memory } from '../src/memory.js';
 import { OpencodeOrchestrator } from '../src/opencode.js';
 import { Verifier } from '../src/verifier.js';
+import { MemoryEngine } from '../src/memory/engine.js';
 import * as fs from 'node:fs';
 
 // Mock the dependencies
@@ -55,6 +56,13 @@ describe('Orchestrator State Machine & Persistence', () => {
   let mockOpencode: any;
   let activeOrchestrators: Orchestrator[] = [];
 
+  let getGoalSpentSpy: any = null;
+  let terminateSpy: any = null;
+  let runCommandSpy: any = null;
+  let detectSpy: any = null;
+  let promptSpy: any = null;
+  let planSpy: any = null;
+
   beforeEach(() => {
     vi.clearAllMocks();
     activeOrchestrators = [];
@@ -65,6 +73,31 @@ describe('Orchestrator State Machine & Persistence', () => {
   });
 
   afterEach(() => {
+    if (getGoalSpentSpy) {
+      getGoalSpentSpy.mockRestore();
+      getGoalSpentSpy = null;
+    }
+    if (terminateSpy) {
+      terminateSpy.mockRestore();
+      terminateSpy = null;
+    }
+    if (runCommandSpy) {
+      runCommandSpy.mockRestore();
+      runCommandSpy = null;
+    }
+    if (detectSpy) {
+      detectSpy.mockRestore();
+      detectSpy = null;
+    }
+    if (promptSpy) {
+      promptSpy.mockRestore();
+      promptSpy = null;
+    }
+    if (planSpy) {
+      planSpy.mockRestore();
+      planSpy = null;
+    }
+
     for (const o of activeOrchestrators) {
       try {
         o.close();
@@ -107,40 +140,27 @@ describe('Orchestrator State Machine & Persistence', () => {
   });
 
   it('retries when verification fails and increments attempt count', async () => {
-    // Mock execution to succeed but verification to fail
-    (Verifier.verifyTask as any).mockResolvedValue({
-      taskId: 'test-task',
-      layers: { compile: { passed: false, stdout: '', stderr: 'Compiler Error', durationMs: 10 } },
-      overallPass: false,
-      timestamp: new Date().toISOString(),
-    });
-
-    const orchestrator = new Orchestrator(mockOpencode, TEST_DB);
-    activeOrchestrators.push(orchestrator);
-
-    // We expect it to cycle through execution and retry until MAX_RETRIES.
-    // However, on exceeding retries, it transitions back to 'planning' and loop would continue.
-    // To prevent infinite loop in tests, we can change the mock behavior after a few calls.
-    let callCount = 0;
+    // Mock verification to fail first, then pass
+    let verificationCount = 0;
     (Verifier.verifyTask as any).mockImplementation(async () => {
-      callCount++;
-      if (callCount >= 2) {
-        // Pass on the second attempt
-        return {
-          taskId: 'test-task',
-          layers: { compile: { passed: true, stdout: '', stderr: '', durationMs: 10 } },
-          overallPass: true,
-          timestamp: new Date().toISOString(),
-        };
-      }
+      verificationCount++;
       return {
         taskId: 'test-task',
-        layers: { compile: { passed: false, stdout: '', stderr: 'Compiler Error', durationMs: 10 } },
-        overallPass: false,
+        layers: {
+          compile: {
+            passed: verificationCount > 1,
+            stdout: '',
+            stderr: verificationCount > 1 ? '' : 'Compiler Error',
+            durationMs: 10,
+          },
+        },
+        overallPass: verificationCount > 1,
         timestamp: new Date().toISOString(),
       };
     });
 
+    const orchestrator = new Orchestrator(mockOpencode, TEST_DB);
+    activeOrchestrators.push(orchestrator);
     await orchestrator.runGoal('Mock Goal with failures');
 
     const memory = new Memory(TEST_DB);
@@ -219,7 +239,7 @@ describe('Orchestrator State Machine & Persistence', () => {
           maxCost: 1,
           timeout: 100,
         },
-      ]
+      ],
     ];
     memory.updateTaskPlan(taskId, plan);
     memory.close();
@@ -241,5 +261,83 @@ describe('Orchestrator State Machine & Persistence', () => {
     const task = checkMemory.getTask(taskId);
     expect(task?.state).toBe('done'); // Resumed and completed
     checkMemory.close();
+  });
+
+  it('logs project memory lessons and conventions on goal completion', async () => {
+    const memoryEngine = new MemoryEngine(TEST_DB);
+    const mockReview = {
+      passed: true,
+      comments: [
+        { file: 'src/index.ts', line: 10, severity: 'nit', message: 'Use const instead of let' },
+        { file: 'src/router.ts', line: 40, severity: 'issue', message: 'Potential null pointer here' },
+      ],
+      confidence: 0.95,
+    };
+    memoryEngine.saveTaskReview('mocked-task-id', JSON.stringify(mockReview));
+
+    (Verifier.verifyTask as any).mockResolvedValue({
+      taskId: 'mocked-task-id',
+      layers: { compile: { passed: true, stdout: '', stderr: '', durationMs: 10 } },
+      overallPass: true,
+      timestamp: new Date().toISOString(),
+    });
+
+    const orchestrator = new Orchestrator(mockOpencode, TEST_DB);
+    activeOrchestrators.push(orchestrator);
+    await orchestrator.runGoal('Test Project Memory Goal');
+
+    const conventions = memoryEngine.getConventions();
+    expect(conventions.length).toBeGreaterThan(0);
+    expect(conventions[0]).toContain('Use const instead of let');
+
+    const db = (memoryEngine as any).getDb();
+    const lessons = db.prepare("SELECT value FROM project_memory WHERE category = 'lesson'").all();
+    db.close();
+
+    expect(lessons.length).toBeGreaterThan(0);
+    expect(lessons[0].value).toContain('Potential null pointer here');
+  });
+
+  it('terminates and rolls back workspace when session budget is exceeded', async () => {
+    const { CostEngine } = await import('../src/cost/engine.js');
+    getGoalSpentSpy = vi.spyOn(CostEngine.prototype, 'getGoalSpent').mockResolvedValue(20.0);
+    terminateSpy = vi.spyOn(CostEngine.prototype, 'terminateDueToBudget').mockImplementation(() => {
+      throw new Error('budget limit reached');
+    });
+
+    const orchestrator = new Orchestrator(mockOpencode, TEST_DB);
+    activeOrchestrators.push(orchestrator);
+
+    runCommandSpy = vi.spyOn(orchestrator, 'runCommand').mockReturnValue('mock-hash');
+
+    await expect(orchestrator.runGoal('Mock Goal')).rejects.toThrow('budget limit reached');
+
+    expect(runCommandSpy).toHaveBeenCalledWith('git reset --hard mock-hash');
+    expect(runCommandSpy).toHaveBeenCalledWith('git clean -fd');
+    expect(terminateSpy).toHaveBeenCalled();
+  });
+
+  it('handles oscillation escalation choice replan correctly', async () => {
+    const orchestrator = new Orchestrator(mockOpencode, TEST_DB);
+    activeOrchestrators.push(orchestrator);
+
+    const { LoopDetector } = await import('../src/safety/loop.js');
+    detectSpy = vi.spyOn(LoopDetector.prototype, 'detectOscillation').mockImplementation((sig) => {
+      return sig.phase === 'executing';
+    });
+    promptSpy = vi.spyOn(orchestrator as any, 'promptUserForEscalation').mockResolvedValue('replan');
+
+    let callCount = 0;
+    planSpy = vi.spyOn(orchestrator as any, 'handlePlanning').mockImplementation(async (record: any) => {
+      callCount++;
+      if (callCount > 1) {
+        throw new Error('stop loop');
+      }
+      orchestrator['memory'].updateTaskState(record.id, 'executing', { plan: [] });
+    });
+
+    await expect(orchestrator.runGoal('Mock Goal')).rejects.toThrow('stop loop');
+    expect(promptSpy).toHaveBeenCalled();
+    expect(planSpy).toHaveBeenCalledTimes(2);
   });
 });
