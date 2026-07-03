@@ -59,8 +59,8 @@ export async function runCli(
   const sessions = memory.getSessions();
 
   // If no goal and no resumeTaskId, prompt for choice or session picker
-  let targetGoal = initialGoal;
-  let targetTaskId = resumeTaskId;
+  const targetGoal = initialGoal;
+  const targetTaskId = resumeTaskId;
 
   // Let the user select a model from all available Opencode providers before starting if no goal passed
   if (!targetGoal && !targetTaskId) {
@@ -111,6 +111,8 @@ export async function runCli(
   let inkInstance: any = null;
 
   const MainApp = () => {
+    const [activeGoal, setActiveGoal] = useState<string | null>(targetGoal || null);
+    const [activeTaskId, setActiveTaskId] = useState<string | null>(targetTaskId || null);
     const [goalTitle, setGoalTitle] = useState(targetGoal || 'Idle');
     const [phase, setPhase] = useState<'planning' | 'executing' | 'verifying' | 'done' | 'failed'>('planning');
     const [tasks, setTasks] = useState<TaskUiState[]>([]);
@@ -161,8 +163,24 @@ export async function runCli(
       setScrollOffset((prev) => Math.max(0, prev - 1));
     };
 
+    // Cleanup: Close OpenCode server on component unmount
+    useEffect(() => {
+      return () => {
+        try {
+          opencodeInstance.close();
+        } catch (err) {
+          // Ignore close errors
+        }
+      };
+    }, []);
+
     // Initial setup to run orchestrator
     useEffect(() => {
+      if (!activeGoal && !activeTaskId) {
+        setPhase('done');
+        return;
+      }
+
       let orchestrator: Orchestrator | null = null;
 
       const execute = async () => {
@@ -178,43 +196,32 @@ export async function runCli(
           };
 
           // Setup or resume session in database
-          const sessionId = targetTaskId || crypto.randomUUID();
+          const sessionId = activeTaskId || crypto.randomUUID();
           setCurrentSessionId(sessionId);
 
           const existingSession = memory.getSession(sessionId);
           if (!existingSession) {
             memory.createSession(
               sessionId,
-              targetGoal ? `session-${sessionId.substring(0, 8)}` : 'Unnamed Session',
+              activeGoal ? `session-${sessionId.substring(0, 8)}` : 'Unnamed Session',
               sessionId,
             );
           }
 
-          if (targetTaskId) {
+          if (activeTaskId) {
             setPhase('planning');
-            await orchestrator.resumeTask(targetTaskId);
-          } else if (targetGoal) {
-            setGoalTitle(targetGoal);
-            await orchestrator.runGoal(targetGoal);
+            await orchestrator.resumeTask(activeTaskId);
+          } else if (activeGoal) {
+            setGoalTitle(activeGoal);
+            await orchestrator.runGoal(activeGoal);
           }
         } catch (err: any) {
           console.error(`Execution failed: ${err.message}`);
         }
       };
 
-      if (targetGoal || targetTaskId) {
-        execute();
-      }
-
-      // Cleanup: Close OpenCode server on component unmount
-      return () => {
-        try {
-          opencodeInstance.close();
-        } catch (err) {
-          // Ignore close errors
-        }
-      };
-    }, []);
+      execute();
+    }, [activeGoal, activeTaskId]);
 
     // Handle prompt/slash commands
     const handleSubmitPrompt = async (prompt: string) => {
@@ -293,18 +300,17 @@ export async function runCli(
       if (phase === 'done' || phase === 'failed' || goalTitle === 'Idle') {
         setGoalTitle(trimmed);
         setPhase('planning');
-        targetGoal = trimmed;
-        targetTaskId = undefined;
-        // restart orchestrator trigger...
+        setActiveGoal(trimmed);
+        setActiveTaskId(null);
       }
     };
 
     const handleSessionSelect = (session: SessionRecord) => {
-      targetTaskId = session.id;
-      targetGoal = undefined;
       setGoalTitle(session.name || 'Resumed Session');
       // Set to planning state
       setPhase('planning');
+      setActiveTaskId(session.id);
+      setActiveGoal(null);
     };
 
     const handleSessionRename = (session: SessionRecord, newName: string) => {
