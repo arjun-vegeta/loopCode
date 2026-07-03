@@ -13,6 +13,7 @@ import { setupTerminal } from './terminal-setup.js';
 import { openModelPicker } from './model-picker.js';
 import { execSync } from 'node:child_process';
 import * as crypto from 'node:crypto';
+import { select, isCancel } from '@clack/prompts';
 
 // Setup verification layers default state
 const defaultVerificationLayers: VerificationLayers = {
@@ -33,12 +34,77 @@ export async function runCli(
     process.exit(1);
   }
 
+  // 2. Load Config & Router
+  const config = ConfigManager.loadConfig();
+  const routerConfig: any = {};
+  if (config.model) {
+    if (config.model.default) routerConfig.default = ConfigManager.resolveModelRoute(config.model.default);
+    if (config.model.planning) routerConfig.planning = ConfigManager.resolveModelRoute(config.model.planning);
+    if (config.model.verification)
+      routerConfig.verification = ConfigManager.resolveModelRoute(config.model.verification);
+  }
+  const router = new Router(routerConfig);
+
+  // 3. Initialize OpenCode (checks authentication/provider setup before TUI renders)
+  let opencodeInstance: OpencodeOrchestrator;
+  try {
+    opencodeInstance = await OpencodeOrchestrator.initialize(router);
+  } catch (err: any) {
+    console.error(`\n❌ Initialization Error: ${err.message}`);
+    process.exit(1);
+  }
+
   const memory = new Memory(dbPath);
   const sessions = memory.getSessions();
 
   // If no goal and no resumeTaskId, prompt for choice or session picker
   let targetGoal = initialGoal;
   let targetTaskId = resumeTaskId;
+
+  // Let the user select a model from all available Opencode providers before starting if no goal passed
+  if (!targetGoal && !targetTaskId) {
+    try {
+      const { data: configData } = await opencodeInstance.client.config.providers();
+      const modelOptions: any[] = [];
+
+      if (configData && configData.providers) {
+        for (const providerInfo of configData.providers) {
+          const p = providerInfo as any;
+          if ((p.state === 'ready' || p.configured) && p.models) {
+            for (const m of Object.values<any>(p.models)) {
+              modelOptions.push({
+                value: `${p.id}/${m.id}`,
+                label: m.name || m.id,
+                hint: p.id,
+              });
+            }
+          }
+        }
+      }
+
+      if (modelOptions.length > 0) {
+        // Sort alphabetically by label
+        modelOptions.sort((a, b) => a.label.localeCompare(b.label));
+
+        const selectedModel = await select({
+          message: 'Select an AI model for this session (type to search):',
+          options: modelOptions,
+          maxItems: 12,
+        });
+
+        if (isCancel(selectedModel)) {
+          process.exit(0);
+        }
+
+        const route = ConfigManager.resolveModelRoute(selectedModel as string);
+        if (route) {
+          router.overrideAllModels(route);
+        }
+      }
+    } catch (err) {
+      // Ignore errors fetching models, fallback to default router behavior
+    }
+  }
 
   // Render the Ink App
   let inkInstance: any = null;
@@ -54,23 +120,11 @@ export async function runCli(
 
     // Initial setup to run orchestrator
     useEffect(() => {
-      const config = ConfigManager.loadConfig();
-      const routerConfig: any = {};
-      if (config.model) {
-        if (config.model.default) routerConfig.default = ConfigManager.resolveModelRoute(config.model.default);
-        if (config.model.planning) routerConfig.planning = ConfigManager.resolveModelRoute(config.model.planning);
-        if (config.model.verification)
-          routerConfig.verification = ConfigManager.resolveModelRoute(config.model.verification);
-      }
-      const router = new Router(routerConfig);
-
-      let opencode: OpencodeOrchestrator | null = null;
       let orchestrator: Orchestrator | null = null;
 
       const execute = async () => {
         try {
-          opencode = await OpencodeOrchestrator.initialize(router);
-          orchestrator = new Orchestrator(opencode, dbPath, router);
+          orchestrator = new Orchestrator(opencodeInstance, dbPath, router);
 
           // Setup Orchestrator listener
           orchestrator.listener = {
@@ -102,16 +156,21 @@ export async function runCli(
           }
         } catch (err: any) {
           console.error(`Execution failed: ${err.message}`);
-        } finally {
-          if (opencode) {
-            opencode.close();
-          }
         }
       };
 
       if (targetGoal || targetTaskId) {
         execute();
       }
+
+      // Cleanup: Close OpenCode server on component unmount
+      return () => {
+        try {
+          opencodeInstance.close();
+        } catch (err) {
+          // Ignore close errors
+        }
+      };
     }, []);
 
     // Handle prompt/slash commands
