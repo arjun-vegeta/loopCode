@@ -19,10 +19,14 @@ describe('Code Knowledge Engine', () => {
       `
       export class TestClass {
         constructor() {}
-        testMethod() { return true; }
+        testMethod() {
+          return true;
+        }
       }
-      export function testFunction() { return false; }
-      const testVar = 42;
+      export function testFunction() {
+        return false;
+      }
+      export const testVar = 42;
     `,
     );
   });
