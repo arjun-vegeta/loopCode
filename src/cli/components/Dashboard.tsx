@@ -7,6 +7,8 @@ import { StatusBar } from './StatusBar.js';
 import { SessionPicker } from './SessionPicker.js';
 import type { SessionRecord } from '../../memory.js';
 import { getPermissionMode, setPermissionMode } from '../state.js';
+import { FullScreenApp } from './FullScreenApp.js';
+import { Markdown } from './Markdown.js';
 
 interface CostState {
   spent: number;
@@ -20,6 +22,10 @@ interface DashboardProps {
   cost: CostState;
   verification: VerificationLayers;
   sessions: SessionRecord[];
+  logs: string[];
+  scrollOffset: number;
+  onScrollUp: () => void;
+  onScrollDown: () => void;
   onSubmitPrompt: (prompt: string) => void;
   onSessionSelect: (session: SessionRecord) => void;
   onSessionRename: (session: SessionRecord, newName: string) => void;
@@ -34,6 +40,10 @@ export function Dashboard({
   cost,
   verification,
   sessions,
+  logs,
+  scrollOffset,
+  onScrollUp,
+  onScrollDown,
   onSubmitPrompt,
   onSessionSelect,
   onSessionRename,
@@ -122,10 +132,32 @@ export function Dashboard({
     costColor = 'yellow';
   }
 
+  const terminalRows = process.stdout.rows || 24;
+  const HEADER_HEIGHT = 4;
+  const PHASE_LINE_HEIGHT = 3;
+  const ACTIVE_TASKS_HEIGHT = tasks.length > 0 ? 5 : 2;
+  const VERIFICATION_LOG_HEIGHT = 6;
+  const INPUT_HEIGHT = 5;
+  const STATUS_BAR_HEIGHT = 3;
+  const reservedHeight =
+    HEADER_HEIGHT +
+    PHASE_LINE_HEIGHT +
+    ACTIVE_TASKS_HEIGHT +
+    VERIFICATION_LOG_HEIGHT +
+    INPUT_HEIGHT +
+    STATUS_BAR_HEIGHT;
+
+  const chatHeight = Math.max(4, terminalRows - reservedHeight);
+
+  const visibleLogs = logs.slice(
+    Math.max(0, logs.length - chatHeight - scrollOffset),
+    Math.max(0, logs.length - scrollOffset),
+  );
+
   return (
-    <Box flexDirection="column" padding={1} width="100%">
+    <FullScreenApp onScrollUp={onScrollUp} onScrollDown={onScrollDown}>
       {/* Header */}
-      <Box justifyContent="space-between" borderStyle="single" borderColor="cyan" paddingX={1}>
+      <Box justifyContent="space-between" borderStyle="single" borderColor="cyan" paddingX={1} flexShrink={0}>
         <Text bold color="cyan">
           LoopCode v1.0.0
         </Text>
@@ -135,8 +167,69 @@ export function Dashboard({
         </Text>
       </Box>
 
-      {showSessionPicker ? (
-        <Box marginY={1}>
+      <Box flexDirection="column" flexGrow={1}>
+        {/* Phase Line */}
+        {renderPhasePipeline()}
+
+        {/* Active Tasks Grid */}
+        <Box flexDirection="column" marginY={1} flexShrink={0}>
+          <Text bold color="yellow">
+            Active Tasks
+          </Text>
+          <Box flexDirection="row" flexWrap="wrap">
+            {tasks.length === 0 ? (
+              <Text dimColor>No active tasks.</Text>
+            ) : (
+              tasks.map((task) => <TaskCard key={task.id} task={task} />)
+            )}
+          </Box>
+        </Box>
+
+        {/* Verification Log */}
+        <Box flexShrink={0}>
+          <VerificationLog layers={verification} />
+        </Box>
+
+        {/* Scrollable Log View */}
+        <Box
+          flexDirection="column"
+          height={chatHeight}
+          borderStyle="single"
+          borderColor="gray"
+          paddingX={1}
+          marginY={1}
+        >
+          {visibleLogs.length === 0 ? (
+            <Text dimColor>No logs yet. Submit a prompt to start.</Text>
+          ) : (
+            visibleLogs.map((log, i) => <Markdown key={i} text={log} />)
+          )}
+        </Box>
+
+        {/* User Input prompt */}
+        <Box flexShrink={0}>
+          <MultilineInput
+            onSubmit={onSubmitPrompt}
+            onSessionPicker={() => setShowSessionPicker(true)}
+            onModelPicker={onModelPickerOpen}
+            isActive={!showSessionPicker}
+          />
+        </Box>
+
+        {/* Status Bar info */}
+        <Box flexShrink={0}>
+          <StatusBar cost={cost} />
+        </Box>
+      </Box>
+
+      {/* Overlay: Session Picker */}
+      {showSessionPicker && (
+        <Box
+          position="absolute"
+          top={Math.floor(terminalRows / 4)}
+          left={Math.floor((process.stdout.columns || 80) / 2) - 30}
+          flexDirection="column"
+        >
           <SessionPicker
             sessions={sessions}
             onSelect={(session) => {
@@ -148,39 +241,7 @@ export function Dashboard({
             onDelete={onSessionDelete}
           />
         </Box>
-      ) : (
-        <>
-          {/* Phase Line */}
-          {renderPhasePipeline()}
-
-          {/* Active Tasks Grid */}
-          <Box flexDirection="column" marginY={1}>
-            <Text bold color="yellow">
-              Active Tasks
-            </Text>
-            <Box flexDirection="row" flexWrap="wrap">
-              {tasks.length === 0 ? (
-                <Text dimColor>No active tasks.</Text>
-              ) : (
-                tasks.map((task) => <TaskCard key={task.id} task={task} />)
-              )}
-            </Box>
-          </Box>
-
-          {/* Verification Log */}
-          <VerificationLog layers={verification} />
-
-          {/* User Input prompt */}
-          <MultilineInput
-            onSubmit={onSubmitPrompt}
-            onSessionPicker={() => setShowSessionPicker(true)}
-            onModelPicker={onModelPickerOpen}
-          />
-
-          {/* Status Bar info */}
-          <StatusBar />
-        </>
       )}
-    </Box>
+    </FullScreenApp>
   );
 }

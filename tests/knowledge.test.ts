@@ -16,14 +16,17 @@ describe('Code Knowledge Engine', () => {
     }
     fs.writeFileSync(
       testFile,
-      `
-      export class TestClass {
-        constructor() {}
-        testMethod() { return true; }
-      }
-      export function testFunction() { return false; }
-      const testVar = 42;
-    `,
+      `export class TestClass {
+  constructor() {}
+  testMethod() {
+    return true;
+  }
+}
+export function testFunction() {
+  return false;
+}
+export const testVar = 42;
+`,
     );
   });
 

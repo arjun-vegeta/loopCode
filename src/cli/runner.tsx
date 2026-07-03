@@ -14,6 +14,7 @@ import { openModelPicker } from './model-picker.js';
 import { execSync } from 'node:child_process';
 import * as crypto from 'node:crypto';
 import { select, isCancel } from '@clack/prompts';
+import { squashPrompt } from './prompt-util.js';
 
 // Setup verification layers default state
 const defaultVerificationLayers: VerificationLayers = {
@@ -117,6 +118,48 @@ export async function runCli(
     const [verification, setVerification] = useState<VerificationLayers>(defaultVerificationLayers);
     const [allSessions, setAllSessions] = useState<SessionRecord[]>(sessions);
     const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
+    const [logs, setLogs] = useState<string[]>([]);
+    const [scrollOffset, setScrollOffset] = useState(0);
+
+    // Intercept console.log and console.error
+    useEffect(() => {
+      const originalLog = console.log;
+      const originalError = console.error;
+
+      const addLog = (text: string) => {
+        setLogs((prev) => {
+          const lines = text.split('\n');
+          const newLogs = [...prev, ...lines];
+          if (newLogs.length > 1000) {
+            return newLogs.slice(newLogs.length - 1000);
+          }
+          return newLogs;
+        });
+      };
+
+      console.log = (...args) => {
+        const formatted = args.map((arg) => (typeof arg === 'object' ? JSON.stringify(arg) : String(arg))).join(' ');
+        addLog(formatted);
+      };
+
+      console.error = (...args) => {
+        const formatted = args.map((arg) => (typeof arg === 'object' ? JSON.stringify(arg) : String(arg))).join(' ');
+        addLog(`❌ ${formatted}`);
+      };
+
+      return () => {
+        console.log = originalLog;
+        console.error = originalError;
+      };
+    }, []);
+
+    const handleScrollUp = () => {
+      setScrollOffset((prev) => prev + 1);
+    };
+
+    const handleScrollDown = () => {
+      setScrollOffset((prev) => Math.max(0, prev - 1));
+    };
 
     // Initial setup to run orchestrator
     useEffect(() => {
@@ -176,6 +219,10 @@ export async function runCli(
     // Handle prompt/slash commands
     const handleSubmitPrompt = async (prompt: string) => {
       const trimmed = prompt.trim();
+      if (!trimmed) return;
+
+      console.log(`\n❯ ${squashPrompt(trimmed)}`);
+
       if (trimmed.startsWith('/')) {
         const parts = trimmed.split(' ');
         const cmd = parts[0];
@@ -288,6 +335,10 @@ export async function runCli(
         cost={cost}
         verification={verification}
         sessions={allSessions}
+        logs={logs}
+        scrollOffset={scrollOffset}
+        onScrollUp={handleScrollUp}
+        onScrollDown={handleScrollDown}
         onSubmitPrompt={handleSubmitPrompt}
         onSessionSelect={handleSessionSelect}
         onSessionRename={handleSessionRename}
