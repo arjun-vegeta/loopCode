@@ -4,15 +4,14 @@ import { join } from 'node:path';
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { parse, stringify } from 'smol-toml';
 import { ModelPortfolio } from '../router/portfolio.js';
-import type { LoopcodeConfig } from '../config.js';
 
 const CONFIG_PATH = join(homedir(), '.loopcode', 'config.toml');
 
-function loadModelConfig(): LoopcodeConfig {
+function loadModelConfig(): any {
   try {
     if (existsSync(CONFIG_PATH)) {
       const content = readFileSync(CONFIG_PATH, 'utf-8');
-      return parse(content) as LoopcodeConfig;
+      return parse(content) as any;
     }
   } catch (err: any) {
     console.warn(`Failed to read config: ${err.message}`);
@@ -20,7 +19,7 @@ function loadModelConfig(): LoopcodeConfig {
   return {};
 }
 
-function saveModelConfig(config: LoopcodeConfig) {
+function saveModelConfig(config: any) {
   try {
     const dir = join(CONFIG_PATH, '..');
     if (!existsSync(dir)) {
