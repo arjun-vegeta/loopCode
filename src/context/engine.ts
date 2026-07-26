@@ -183,7 +183,7 @@ export class ContextEngine {
         // Assuming we could find definitions, this is a placeholder for actual LSP queries
         // which require file/line/char. We'd need to search CodeGraph for the symbol first.
         try {
-          const nodes = this.memoryEngine['getDb']()
+          const nodes = this.memoryEngine.db
             .prepare('SELECT file_path, line_start FROM code_graph_nodes WHERE name = ? LIMIT 1')
             .get(symbol) as any;
           if (nodes && nodes.file_path && nodes.line_start) {

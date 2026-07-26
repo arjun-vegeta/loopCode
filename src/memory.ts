@@ -1,6 +1,7 @@
 import { Database } from 'bun:sqlite';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { SCHEMA_SQL } from './db/schema.js';
 import type { VerificationReport } from './types.js';
 
 export interface TaskRecord {
@@ -44,123 +45,45 @@ export class Memory {
   }
 
   private initializeSchema() {
-    // Read the schema.sql file
-    const schemaPath = path.join(process.cwd(), 'db', 'schema.sql');
-    if (fs.existsSync(schemaPath)) {
-      const schema = fs.readFileSync(schemaPath, 'utf8');
-      this.db.exec(schema);
-    } else {
-      // Fallback schema if file not found
-      this.db.exec(`
-        CREATE TABLE IF NOT EXISTS tasks (
-          id TEXT PRIMARY KEY,
-          goal TEXT NOT NULL,
-          state TEXT NOT NULL,
-          plan_json TEXT,
-          current_task_index INTEGER DEFAULT 0,
-          total_cost REAL DEFAULT 0,
-          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-          updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
-        );
-        CREATE TABLE IF NOT EXISTS state_log (
-          id INTEGER PRIMARY KEY AUTOINCREMENT,
-          task_id TEXT NOT NULL REFERENCES tasks(id),
-          phase TEXT NOT NULL,
-          state_json TEXT NOT NULL,
-          created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-        );
-        CREATE TABLE IF NOT EXISTS task_results (
-          id INTEGER PRIMARY KEY AUTOINCREMENT,
-          task_id TEXT NOT NULL REFERENCES tasks(id),
-          step_index INTEGER NOT NULL,
-          verification_json TEXT,
-          cost REAL,
-          duration_ms INTEGER,
-          created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-        );
-        CREATE TABLE IF NOT EXISTS file_index (
-          path TEXT PRIMARY KEY,
-          language TEXT,
-          line_count INTEGER,
-          last_modified DATETIME,
-          symbols_json TEXT
-        );
-        CREATE TABLE IF NOT EXISTS task_plans (
-          task_id TEXT PRIMARY KEY,
-          goal_id TEXT NOT NULL,
-          plan_json TEXT NOT NULL,
-          created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-        );
-        CREATE TABLE IF NOT EXISTS task_executions (
-          task_id TEXT PRIMARY KEY,
-          execution_json TEXT NOT NULL,
-          created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-        );
-        CREATE TABLE IF NOT EXISTS task_reviews (
-          task_id TEXT PRIMARY KEY,
-          review_json TEXT NOT NULL,
-          created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-        );
-        CREATE TABLE IF NOT EXISTS sessions (
-          id TEXT PRIMARY KEY,
-          name TEXT,
-          goal_id TEXT NOT NULL REFERENCES tasks(id),
-          status TEXT DEFAULT 'active',
-          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-          updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-          last_activity DATETIME DEFAULT CURRENT_TIMESTAMP,
-          message_count INTEGER DEFAULT 0,
-          total_cost REAL DEFAULT 0.0,
-          context_usage INTEGER DEFAULT 0,
-          git_branch TEXT,
-          parent_session_id TEXT REFERENCES sessions(id),
-          metadata TEXT
-        );
-        CREATE INDEX IF NOT EXISTS idx_sessions_status ON sessions(status);
-        CREATE INDEX IF NOT EXISTS idx_sessions_name ON sessions(name);
-        CREATE INDEX IF NOT EXISTS idx_sessions_activity ON sessions(last_activity);
-      `);
-    }
+    this.db.exec('PRAGMA journal_mode = WAL;');
+    this.db.exec('PRAGMA foreign_keys = ON;');
+    this.db.exec(SCHEMA_SQL);
   }
 
-  // --- Task Methods ---
-
-  createTask(id: string, goal: string, initialState: TaskRecord['state'] = 'planning') {
+  createTask(id: string, goal: string, state: 'planning' | 'executing' | 'verifying' | 'done' | 'failed' = 'planning') {
     const stmt = this.db.prepare(`
-      INSERT INTO tasks (id, goal, state, current_task_index, total_cost)
-      VALUES (?, ?, ?, 0, 0.0)
+      INSERT INTO tasks (id, goal, state)
+      VALUES (?, ?, ?)
     `);
-    stmt.run(id, goal, initialState);
-    this.logStateTransition(id, initialState, { goal, state: initialState });
+    stmt.run(id, goal, state);
   }
 
-  updateTaskState(id: string, state: TaskRecord['state'], extraJson: Record<string, any> = {}) {
+  updateTaskState(id: string, state: 'planning' | 'executing' | 'verifying' | 'done' | 'failed') {
     const stmt = this.db.prepare(`
       UPDATE tasks 
       SET state = ?, updated_at = CURRENT_TIMESTAMP
       WHERE id = ?
     `);
     stmt.run(state, id);
-    this.logStateTransition(id, state, { state, ...extraJson });
   }
 
-  updateTaskPlan(id: string, plan: any[]) {
-    const planJson = JSON.stringify(plan);
+  updateTaskPlan(id: string, planJson: string | any[]) {
+    const jsonStr = typeof planJson === 'string' ? planJson : JSON.stringify(planJson);
     const stmt = this.db.prepare(`
-      UPDATE tasks
+      UPDATE tasks 
       SET plan_json = ?, updated_at = CURRENT_TIMESTAMP
       WHERE id = ?
     `);
-    stmt.run(planJson, id);
+    stmt.run(jsonStr, id);
   }
 
-  updateTaskProgress(id: string, currentTaskIndex: number, totalCost: number) {
+  updateTaskProgress(id: string, currentIndex: number) {
     const stmt = this.db.prepare(`
-      UPDATE tasks
-      SET current_task_index = ?, total_cost = ?, updated_at = CURRENT_TIMESTAMP
+      UPDATE tasks 
+      SET current_task_index = ?, updated_at = CURRENT_TIMESTAMP
       WHERE id = ?
     `);
-    stmt.run(currentTaskIndex, totalCost, id);
+    stmt.run(currentIndex, id);
   }
 
   getTask(id: string): TaskRecord | undefined {
@@ -168,27 +91,18 @@ export class Memory {
     return stmt.get(id) as TaskRecord | undefined;
   }
 
-  getIncompleteTasks(): TaskRecord[] {
-    const stmt = this.db.prepare("SELECT * FROM tasks WHERE state NOT IN ('done', 'failed')");
-    return stmt.all() as TaskRecord[];
-  }
-
-  // --- State Log Methods ---
-
-  private logStateTransition(taskId: string, phase: string, stateObj: Record<string, any>) {
+  logStateTransition(taskId: string, phase: string, stateJson: string) {
     const stmt = this.db.prepare(`
       INSERT INTO state_log (task_id, phase, state_json)
       VALUES (?, ?, ?)
     `);
-    stmt.run(taskId, phase, JSON.stringify(stateObj));
+    stmt.run(taskId, phase, stateJson);
   }
 
   getStateLogs(taskId: string) {
-    const stmt = this.db.prepare('SELECT * FROM state_log WHERE task_id = ? ORDER BY created_at ASC');
+    const stmt = this.db.prepare('SELECT * FROM state_log WHERE task_id = ? ORDER BY id ASC');
     return stmt.all(taskId);
   }
-
-  // --- Task Results Methods ---
 
   saveTaskResult(
     taskId: string,
@@ -203,7 +117,6 @@ export class Memory {
     `);
     stmt.run(taskId, stepIndex, JSON.stringify(verification), cost, durationMs);
 
-    // Update cumulative cost in tasks table
     const task = this.getTask(taskId);
     if (task) {
       const newCost = task.total_cost + cost;
@@ -269,6 +182,20 @@ export class Memory {
   getSession(id: string): SessionRecord | undefined {
     const stmt = this.db.prepare('SELECT * FROM sessions WHERE id = ?');
     return stmt.get(id) as SessionRecord | undefined;
+  }
+
+  getSessionByGoal(goalId: string): SessionRecord | undefined {
+    const stmt = this.db.prepare('SELECT * FROM sessions WHERE goal_id = ?');
+    return stmt.get(goalId) as SessionRecord | undefined;
+  }
+
+  attachGoalToSession(sessionId: string, goalId: string): void {
+    const stmt = this.db.prepare(`
+      UPDATE sessions
+      SET goal_id = ?, updated_at = CURRENT_TIMESTAMP, last_activity = CURRENT_TIMESTAMP
+      WHERE id = ?
+    `);
+    stmt.run(goalId, sessionId);
   }
 
   getSessions(): SessionRecord[] {

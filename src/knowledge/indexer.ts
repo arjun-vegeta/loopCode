@@ -85,9 +85,8 @@ export class CodeIndexer {
   }
 
   async getAllSymbols(): Promise<Symbol[]> {
-    const db = this.memoryEngine['getDb']();
     try {
-      const rows = db
+      const rows = this.memoryEngine.db
         .prepare(
           `
         SELECT id, file_path as path, name, type, line_start as lineStart, line_end as lineEnd, signature
@@ -96,10 +95,8 @@ export class CodeIndexer {
         )
         .all();
       return rows as any[];
-    } catch (e) {
+    } catch {
       return [];
-    } finally {
-      db.close();
     }
   }
 }
