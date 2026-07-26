@@ -13,11 +13,21 @@ export class CostEngine {
   private goalBudget: number = 10.0;
   private taskBudget: number = 2.0;
   private monthlyBudget: number = 100.0;
+  /** Providers whose usage is quota-based rather than metered. */
+  private quotaProviders = new Set<string>();
 
   constructor(dbPath: string = 'loopcode.db') {
     this.dbPath = dbPath;
     this.loadConfig();
     this.initializeTable();
+  }
+
+  setQuotaProviders(ids: string[]): void {
+    this.quotaProviders = new Set(ids);
+  }
+
+  isQuotaProvider(providerId: string): boolean {
+    return this.quotaProviders.has(providerId);
   }
 
   private loadConfig() {
