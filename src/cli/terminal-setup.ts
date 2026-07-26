@@ -39,9 +39,9 @@ function setupVSCodeLike(settingsPath: string, name: string) {
     settings['terminal.integrated.enableKittyKeyboardProtocol'] = true;
     settings['terminal.integrated.gpuAcceleration'] = 'off';
     writeFileSync(settingsPath, JSON.stringify(settings, null, 2));
-    console.log(`✓ ${name}: Configured Shift+Enter support in settings.json`);
+    process.stdout.write(`✓ ${name}: Configured Shift+Enter support in settings.json\n`);
   } catch (err: any) {
-    console.error(`Failed to configure ${name}: ${err.message}`);
+    process.stderr.write(`Failed to configure ${name}: ${err.message}\n`);
   }
 }
 
@@ -65,12 +65,12 @@ action = "ReceiveChar"
 chars = "\\n"
 `;
       writeFileSync(alacrittyToml, content);
-      console.log('✓ Alacritty: Added Shift+Enter to alacritty.toml');
+      process.stdout.write('✓ Alacritty: Added Shift+Enter to alacritty.toml\n');
     } else {
-      console.log('✓ Alacritty: key_bindings block already exists. Please verify Shift+Enter manually.');
+      process.stdout.write('✓ Alacritty: key_bindings block already exists. Please verify Shift+Enter manually.\n');
     }
   } catch (err: any) {
-    console.error(`Failed to configure Alacritty: ${err.message}`);
+    process.stderr.write(`Failed to configure Alacritty: ${err.message}\n`);
   }
 }
 
@@ -86,7 +86,7 @@ export function detectTerminal(): string {
 
 export function setupTerminal() {
   const terminal = detectTerminal();
-  console.log(`\nConfiguring your terminal (${terminal}) for optimal LoopCode experience...`);
+  process.stdout.write(`\nConfiguring your terminal (${terminal}) for optimal LoopCode experience...\n`);
 
   switch (terminal) {
     case 'vscode':
@@ -101,10 +101,12 @@ export function setupTerminal() {
     case 'iterm2':
     case 'ghostty':
     case 'kitty':
-      console.log('✓ Terminal already supports all features natively');
+      process.stdout.write('✓ Terminal already supports all features natively\n');
       break;
     default: {
-      console.log('⚠️  Terminal not recognized. Attempting to configure both VS Code and Cursor if they exist...');
+      process.stdout.write(
+        '⚠️  Terminal not recognized. Attempting to configure both VS Code and Cursor if they exist...\n',
+      );
       const vsPath = getVSCodeSettingsPath();
       if (existsSync(join(vsPath, '..')) || existsSync(vsPath)) {
         setupVSCodeLike(vsPath, 'VS Code');
@@ -113,9 +115,9 @@ export function setupTerminal() {
       if (existsSync(join(curPath, '..')) || existsSync(curPath)) {
         setupVSCodeLike(curPath, 'Cursor');
       }
-      console.log('Using fallback keybindings (Ctrl+J or \\ + Enter for newline) if needed.');
+      process.stdout.write('Using fallback keybindings (Ctrl+J or \\ + Enter for newline) if needed.\n');
       break;
     }
   }
-  console.log('Restart your terminal for changes to take effect.\n');
+  process.stdout.write('Restart your terminal for changes to take effect.\n\n');
 }
