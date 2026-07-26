@@ -1,19 +1,29 @@
 import { isTestEnv } from '../platform/env.js';
+import { resolveProjectCommands } from '../platform/package-manager.js';
 import type { TaskNode } from '../ir/task.js';
 import type { ExecutionIR } from '../ir/execution.js';
 import type { VerificationIR, VerificationLayer, Regression } from '../ir/verification.js';
 import { ReviewerAgent } from './reviewer.js';
 import { MemoryEngine } from '../memory/engine.js';
 import type { OpencodeClient } from '@opencode-ai/sdk';
-import { execSync } from 'child_process';
+import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 
 export class VerifierAgent {
   private reviewerAgent: ReviewerAgent;
+  private memoryEngine: MemoryEngine;
 
-  constructor(client: OpencodeClient, modelRoute?: { providerID: string; modelID: string }) {
+  constructor(
+    client: OpencodeClient,
+    modelRoute?: { providerID: string; modelID: string },
+    memoryEngine?: MemoryEngine | string,
+  ) {
     this.reviewerAgent = new ReviewerAgent(client, modelRoute);
+    this.memoryEngine =
+      typeof memoryEngine === 'string'
+        ? new MemoryEngine(memoryEngine)
+        : (memoryEngine ?? new MemoryEngine('loopcode.db'));
   }
 
   /**
@@ -22,11 +32,10 @@ export class VerifierAgent {
   async verifyTask(
     taskNode: TaskNode,
     execIR?: ExecutionIR,
-    testCoverageBefore: number = 100,
+    _testCoverageBefore: number = 100,
   ): Promise<VerificationIR> {
     if (!execIR) {
-      const memory = new MemoryEngine();
-      const execJson = memory.getTaskExecution(taskNode.id);
+      const execJson = this.memoryEngine.getTaskExecution(taskNode.id);
       if (!execJson) {
         throw new Error('No execution IR found in shared memory for task ' + taskNode.id);
       }
@@ -39,28 +48,25 @@ export class VerifierAgent {
     const regressions: Regression[] = [];
 
     const worktreePath = execIR.gitState.worktreePath || process.cwd();
+    const commands = resolveProjectCommands(worktreePath);
 
     // Layer 1: Compilation
     const compileStart = Date.now();
     let compilePassed = true;
     let compileEvidence = 'No compilation command specified.';
 
-    const compileVerifyStep = taskNode.acceptanceCriteria.find(
-      (ac) => ac.toLowerCase().includes('compile') || ac.toLowerCase().includes('build'),
-    );
-    if (compileVerifyStep) {
-      try {
-        // Runs compile check (e.g. tsc)
-        const res = execSync('npm run build', { cwd: worktreePath }).toString();
-        compileEvidence = res;
-      } catch (err: any) {
-        compilePassed = false;
-        compileEvidence = err.stdout?.toString() || err.stderr?.toString() || err.message;
+    const buildArgv = commands.build ?? commands.typecheck;
+    if (buildArgv) {
+      const res = spawnSync(buildArgv[0], buildArgv.slice(1), { cwd: worktreePath, encoding: 'utf8' });
+      compilePassed = res.status === 0;
+      compileEvidence = res.stdout || res.stderr || (res.error ? res.error.message : '');
+      if (!compilePassed) {
         overallPass = false;
         retryHint = `Compilation failed: ${compileEvidence}`;
       }
     } else {
-      compileEvidence = 'Skipped: No compile step defined.';
+      compilePassed = true;
+      compileEvidence = 'Skipped: Project defines no build or typecheck script.';
     }
 
     layers.push({
@@ -82,19 +88,17 @@ export class VerifierAgent {
     let testPassed = true;
     let testEvidence = 'No unit tests run.';
 
-    // Check if test script exists or requested
-    if (!isTestEnv()) {
-      try {
-        const res = execSync('npm run test', { cwd: worktreePath }).toString();
-        testEvidence = res;
-      } catch (err: any) {
-        testPassed = false;
-        testEvidence = err.stdout?.toString() || err.stderr?.toString() || err.message;
+    if (!isTestEnv() && commands.test) {
+      const res = spawnSync(commands.test[0], commands.test.slice(1), { cwd: worktreePath, encoding: 'utf8' });
+      testPassed = res.status === 0;
+      testEvidence = res.stdout || res.stderr || (res.error ? res.error.message : '');
+      if (!testPassed) {
         overallPass = false;
         retryHint = `Unit tests failed: ${testEvidence}`;
       }
     } else {
-      testEvidence = 'Skipped: Running in test environment (preventing vitest recursion).';
+      testPassed = true;
+      testEvidence = isTestEnv() ? 'Skipped: Running in test environment.' : 'Skipped: Project defines no test script.';
     }
 
     layers.push({
@@ -111,7 +115,7 @@ export class VerifierAgent {
       return { taskId: taskNode.id, layers, overallPass: false, canRetry: true, retryHint, regressions };
     }
 
-    // Layer 3: Integration Tests (optional, non-blocking warning if skipped)
+    // Layer 3: Integration Tests
     const integrationStart = Date.now();
     layers.push({
       name: 'Integration Tests',
@@ -123,96 +127,48 @@ export class VerifierAgent {
       confidence: 1.0,
     });
 
-    // Layer 4: Security Scan (Semgrep or local regex scanning)
+    // Layer 4: Security Scan
     const securityStart = Date.now();
     let securityPassed = true;
     let securityEvidence = 'Security check clean.';
     try {
       if (!isTestEnv()) {
-        // Attempt external scanner (semgrep / trivy) if available
-        try {
-          // Attempt Semgrep
-          const res = execSync('semgrep scan --config auto --json', {
-            cwd: worktreePath,
-            stdio: ['ignore', 'pipe', 'ignore'],
-          }).toString();
-          const parsed = JSON.parse(res);
+        const res = spawnSync('semgrep', ['scan', '--config', 'auto', '--json'], {
+          cwd: worktreePath,
+          encoding: 'utf8',
+        });
+        if (res.status === 0 && res.stdout) {
+          const parsed = JSON.parse(res.stdout);
           if (parsed && parsed.results && parsed.results.length > 0) {
             securityPassed = false;
             securityEvidence = `Semgrep found ${parsed.results.length} vulnerability(ies).`;
             overallPass = false;
             retryHint = securityEvidence;
           }
-        } catch (e: any) {
-          if (e.status === 1) {
-            // Semgrep exited with findings
+        } else if (res.status !== 0 && res.status !== null) {
+          throw new Error('Semgrep missing or failed');
+        }
+      }
+    } catch {
+      const modifiedFiles = execIR.steps
+        .filter((s) => s.type === 'file_edit')
+        .map((s) => (s.metadata?.path as string) || '')
+        .filter(Boolean);
+
+      const secretsRegex = /(api[_-]?key|secret|password|bearer\s+[a-z0-9._-]+)\s*[:=]\s*["'][a-z0-9._-]+["']/i;
+
+      for (const file of modifiedFiles) {
+        const fullPath = path.join(worktreePath, file);
+        if (fs.existsSync(fullPath)) {
+          const content = fs.readFileSync(fullPath, 'utf8');
+          if (secretsRegex.test(content)) {
             securityPassed = false;
-            securityEvidence = `Semgrep found vulnerabilities.`;
+            securityEvidence = `Potential secret credential detected in ${file}`;
             overallPass = false;
             retryHint = securityEvidence;
-          } else {
-            // Semgrep not installed or failed to run, fallback to Trivy or local regex
-            try {
-              const res = execSync('trivy fs . --format json', {
-                cwd: worktreePath,
-                stdio: ['ignore', 'pipe', 'ignore'],
-              }).toString();
-              const parsed = JSON.parse(res);
-              if (
-                parsed &&
-                parsed.Results &&
-                parsed.Results.some((r: any) => r.Vulnerabilities && r.Vulnerabilities.length > 0)
-              ) {
-                securityPassed = false;
-                securityEvidence = `Trivy found vulnerabilities.`;
-                overallPass = false;
-                retryHint = securityEvidence;
-              }
-            } catch (err: any) {
-              if (err.status === 1) {
-                securityPassed = false;
-                securityEvidence = `Trivy found vulnerabilities.`;
-                overallPass = false;
-                retryHint = securityEvidence;
-              } else {
-                // Both missing/failed, use regex fallback
-                throw new Error('External scanners unavailable');
-              }
-            }
+            break;
           }
         }
-      } else {
-        throw new Error('Test environment');
-      }
-    } catch (err) {
-      // Local regex scan fallback for credentials, secrets, or eval
-      const suspiciousRegex = /(eval\(|system\(|exec\()/i;
-      try {
-        const statusOutput = execSync('git diff --name-only HEAD~1', { cwd: worktreePath }).toString();
-        const files = statusOutput
-          .split(
-            '\
-',
-          )
-          .filter(Boolean);
-        for (const file of files) {
-          if (file.endsWith('.ts') || file.endsWith('.js')) {
-            try {
-              const content = fs.readFileSync(path.join(worktreePath, file), 'utf8');
-              if (suspiciousRegex.test(content)) {
-                securityPassed = false;
-                securityEvidence = `Vulnerability found: Suspicious code patterns (eval, system, exec) in ${file}`;
-                overallPass = false;
-                retryHint = securityEvidence;
-                break;
-              }
-            } catch (fileErr) {
-              // ignore
-            }
-          }
-        }
-      } catch (e) {
-        // ignore
       }
     }
 
@@ -230,62 +186,32 @@ export class VerifierAgent {
       return { taskId: taskNode.id, layers, overallPass: false, canRetry: true, retryHint, regressions };
     }
 
-    // Layer 5: Independent Review Agent
-    const reviewStart = Date.now();
-    let reviewPassed = true;
-    let reviewEvidence = 'Review approved.';
-    let reviewCost = 0.1;
-    try {
-      const reviewResult = await this.reviewerAgent.reviewTask(taskNode);
-      reviewPassed = reviewResult.passed;
-      reviewEvidence = JSON.stringify(reviewResult.comments);
-      reviewCost = taskNode.budget.maxCostUsd * 0.15; // approximate review cost
-      if (!reviewPassed) {
-        overallPass = false;
-        retryHint = `Code review rejected. Comments: ${reviewEvidence}`;
-      }
-    } catch (err: any) {
-      reviewPassed = false;
-      reviewEvidence = `Reviewer crashed: ${err.message}`;
-      overallPass = false;
-    }
+    // Layer 5: LLM Code Reviewer Agent
+    const reviewIR = await this.reviewerAgent.reviewTask(taskNode, execIR);
+    const violations = reviewIR.comments.map((c) => c.message);
 
     layers.push({
-      name: 'Independent Review',
+      name: 'LLM Code Review',
       type: 'review',
-      passed: reviewPassed,
-      evidence: reviewEvidence,
-      durationMs: Date.now() - reviewStart,
-      cost: reviewCost,
-      confidence: 0.9,
+      passed: reviewIR.passed,
+      evidence: violations.join('; ') || 'Code meets design conventions and quality guidelines.',
+      durationMs: 0,
+      cost: 0,
+      confidence: reviewIR.confidence,
     });
 
-    // Check complete definition criteria: test coverage check
-    const testCoverageAfter = 100;
-    // (mocking test coverage check - in production we'd parse coverage reports)
-    if (testCoverageBefore - testCoverageAfter > 10) {
+    if (!reviewIR.passed) {
       overallPass = false;
-      retryHint = `Complete Definition Check: Test coverage dropped by more than 10% (from ${testCoverageBefore}% to ${testCoverageAfter}%)`;
-      regressions.push({
-        file: 'coverage',
-        description: 'Test coverage drop regression',
-        severity: 'critical',
-      });
+      retryHint = `Code Review Failed: ${violations.join('; ')}`;
     }
 
-    const verificationIR = {
+    return {
       taskId: taskNode.id,
       layers,
       overallPass,
       canRetry: true,
-      retryHint: overallPass ? undefined : retryHint,
+      retryHint,
       regressions,
     };
-
-    // Write to shared memory (V2)
-    const memoryEngine = new MemoryEngine();
-    memoryEngine.saveTaskReview(taskNode.id, JSON.stringify(verificationIR));
-
-    return verificationIR;
   }
 }
