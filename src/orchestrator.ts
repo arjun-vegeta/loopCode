@@ -1,4 +1,4 @@
-import { isTestEnv } from './platform/env.js';
+import { isTestEnv, isHeadless } from './platform/env.js';
 import { OpencodeOrchestrator } from './opencode.js';
 import { Verifier } from './verifier.js';
 import { Memory, TaskRecord } from './memory.js';
@@ -7,7 +7,7 @@ import { Router } from './router.js';
 import { validatePlan } from './task.js';
 import type { Task } from './types.js';
 
-// V2 Imports
+// V2 & V3 Imports
 import { Classifier } from './classifier.js';
 import { DynamicRouter } from './router/dynamic.js';
 import { CostEngine } from './cost/engine.js';
@@ -24,7 +24,23 @@ import * as crypto from 'node:crypto';
 import { execSync } from 'node:child_process';
 import * as os from 'node:os';
 import { ConfigManager } from './config.js';
+import { configStore } from './config/store.js';
 import { CodeIndexer } from './knowledge/indexer.js';
+import {
+  EventBus,
+  makeEvent,
+  type AppEvent,
+  type PhaseEvent,
+  type PlanEvent,
+  type TaskStateEvent,
+  type VerificationEvent,
+  type CostEvent,
+  type ApprovalRequestEvent,
+  type EscalationEvent,
+  type NoticeEvent,
+} from './app/events.js';
+import { isCommandDestructive } from './cli/approval.js';
+import { getPermissionMode } from './cli/state.js';
 
 export const MAX_RETRIES = 3;
 
@@ -34,14 +50,16 @@ export class Orchestrator {
   private dbPath: string;
   private planner: Planner;
   private router: Router;
+  private bus?: EventBus;
 
-  // V2 Engines
+  // V2 & V3 Engines
   private classifier: Classifier;
   private dynamicRouter: DynamicRouter;
   private costEngine: CostEngine;
   private loopDetector: LoopDetector;
   private contextEngine: ContextEngine;
   private worktreeScheduler: GitWorktreeScheduler;
+  private memoryEngine: MemoryEngine;
 
   // V2 Agents
   private plannerAgent: PlannerAgent;
@@ -50,6 +68,10 @@ export class Orchestrator {
   private initialCommit: string | null = null;
   private indexer: CodeIndexer;
 
+  private pendingApprovals = new Map<string, (decision: 'yes' | 'always' | 'no') => void>();
+  private pendingEscalations = new Map<string, (res: { optionId: string; guidance?: string }) => void>();
+  private alwaysAllow = new Set<string>();
+
   public listener?: {
     onPhaseChange?: (phase: 'planning' | 'executing' | 'verifying' | 'done' | 'failed') => void;
     onTasksUpdate?: (tasks: any[]) => void;
@@ -57,143 +79,97 @@ export class Orchestrator {
     onVerificationUpdate?: (layers: any) => void;
   };
 
-  private updateState(taskId: string, state: TaskRecord['state'], extraJson: Record<string, any> = {}) {
-    this.memory.updateTaskState(taskId, state, extraJson);
-    this.listener?.onPhaseChange?.(state);
-  }
-
-  constructor(opencode: OpencodeOrchestrator, dbPath: string = 'loopcode.db', router?: Router) {
+  constructor(
+    opencode: OpencodeOrchestrator,
+    dbPath: string = 'loopcode.db',
+    router?: Router,
+    bus?: EventBus,
+    costEngine?: CostEngine,
+    memoryEngine?: MemoryEngine,
+  ) {
     this.opencode = opencode;
     this.dbPath = dbPath;
+    this.bus = bus;
     this.memory = new Memory(dbPath);
     this.router = router || new Router();
     this.planner = new Planner(this.opencode.client, this.router);
 
-    // Wrap memory's updateTaskState to notify phase changes and task statuses
-    const originalUpdateState = this.memory.updateTaskState.bind(this.memory);
-    (this.memory as any).updateTaskState = (id: string, state: any, extraJson: any = {}) => {
-      originalUpdateState(id, state, extraJson);
-      this.listener?.onPhaseChange?.(state);
-
-      if (state === 'executing' || state === 'verifying' || state === 'done') {
-        const taskRecord = this.memory.getTask(id);
-        if (taskRecord && taskRecord.plan_json) {
-          const plan = JSON.parse(taskRecord.plan_json);
-          const currentIdx = taskRecord.current_task_index;
-          const currentBatch = plan[currentIdx] || [];
-          const uiTasks = plan.flat().map((t: any) => {
-            const isCurrentBatch = currentBatch.some((cb: any) => cb.id === t.id);
-            let tStatus: any = 'pending';
-            let steps = 0;
-            if (state === 'done') {
-              tStatus = 'completed';
-              steps = 5;
-            } else if (plan.indexOf(t) < currentIdx) {
-              tStatus = 'completed';
-              steps = 5;
-            } else if (isCurrentBatch) {
-              tStatus = state === 'executing' ? 'executing' : 'verifying';
-              steps = state === 'executing' ? 2 : 4;
-            }
-            return {
-              id: t.id,
-              title: t.description,
-              model: t.model || 'kimi-k2.6',
-              status: tStatus,
-              stepsCompleted: steps,
-              stepsTotal: 5,
-              cost: tStatus === 'completed' ? t.maxCost || 0.1 : tStatus === 'pending' ? 0 : 0.05,
-              budget: t.maxCost || 1.0,
-            };
-          });
-          this.listener?.onTasksUpdate?.(uiTasks);
-        }
-      }
-    };
-
-    // Wrap memory's updateTaskPlan to notify task list updates
-    const originalUpdatePlan = this.memory.updateTaskPlan.bind(this.memory);
-    (this.memory as any).updateTaskPlan = (id: string, plan: any[]) => {
-      originalUpdatePlan(id, plan);
-      const uiTasks = plan.flat().map((t: any) => ({
-        id: t.id,
-        title: t.description,
-        model: t.model || 'claude-5-sonnet',
-        status: 'pending' as const,
-        stepsCompleted: 0,
-        stepsTotal: 5,
-        cost: 0,
-        budget: t.maxCost || 1.0,
-      }));
-      this.listener?.onTasksUpdate?.(uiTasks);
-    };
-
-    // Wrap memory's saveTaskResult to notify cost and verification updates
-    const originalSaveResult = this.memory.saveTaskResult.bind(this.memory);
-    (this.memory as any).saveTaskResult = (
-      taskId: string,
-      stepIndex: number,
-      verification: any,
-      cost: number,
-      durationMs: number,
-    ) => {
-      originalSaveResult(taskId, stepIndex, verification, cost, durationMs);
-
-      const task = this.memory.getTask(taskId);
-      if (task) {
-        this.listener?.onCostUpdate?.(task.total_cost);
-      }
-
-      const verificationLayers = {
-        compile: {
-          passed: verification.layers?.compile?.passed ?? null,
-          durationMs: verification.layers?.compile?.durationMs ?? 0,
-          cost: 0.01,
-        },
-        lint: {
-          passed: verification.layers?.lint?.passed ?? null,
-          durationMs: verification.layers?.lint?.durationMs ?? 0,
-          cost: 0.005,
-        },
-        tests: {
-          passed: verification.layers?.test?.passed ?? null,
-          durationMs: verification.layers?.test?.durationMs ?? 0,
-          cost: 0.015,
-        },
-        security: {
-          passed: verification.layers?.security?.passed ?? null,
-          durationMs: verification.layers?.security?.durationMs ?? 0,
-          cost: 0.002,
-        },
-      };
-      this.listener?.onVerificationUpdate?.(verificationLayers);
-    };
-
-    // Initialize V2 Engines
     this.classifier = new Classifier();
     this.dynamicRouter = new DynamicRouter(dbPath);
-    this.costEngine = new CostEngine(dbPath);
+    this.costEngine = costEngine || new CostEngine(dbPath);
+    this.memoryEngine = memoryEngine || new MemoryEngine(dbPath);
     this.loopDetector = new LoopDetector();
-    this.contextEngine = new ContextEngine();
+    this.contextEngine = new ContextEngine(dbPath);
     this.worktreeScheduler = new GitWorktreeScheduler('.loopcode/worktrees', this.opencode.client);
 
     this.plannerAgent = new PlannerAgent(this.opencode.client);
-    this.engineerAgent = new EngineerAgent(this.opencode.client);
-    this.verifierAgent = new VerifierAgent(this.opencode.client);
+    this.engineerAgent = new EngineerAgent(this.opencode.client, undefined, this.memoryEngine);
+    this.verifierAgent = new VerifierAgent(this.opencode.client, undefined, this.memoryEngine);
     this.indexer = new CodeIndexer(dbPath);
   }
 
-  async runGoal(goal: string): Promise<void> {
-    const taskId = crypto.randomUUID();
-    console.log(`[Orchestrator] Starting goal with ID: ${taskId}`);
+  private emit<E extends AppEvent>(event: Omit<E, 'id' | 'at'>): void {
+    if (this.bus) {
+      this.bus.emit(makeEvent<E>(event as Omit<E, 'id' | 'at'>));
+    }
+  }
 
-    // Ensure codebase is indexed before starting
-    if (!isTestEnv()) {
+  private updateState(taskId: string, state: TaskRecord['state']) {
+    this.memory.updateTaskState(taskId, state);
+    this.memory.logStateTransition(taskId, state, JSON.stringify({}));
+    this.listener?.onPhaseChange?.(state);
+    this.emit<PhaseEvent>({ kind: 'phase', phase: state });
+  }
+
+  resolveApproval(requestId: string, decision: 'yes' | 'always' | 'no'): void {
+    const resolver = this.pendingApprovals.get(requestId);
+    if (resolver) {
+      this.pendingApprovals.delete(requestId);
+      resolver(decision);
+    }
+  }
+
+  resolveEscalation(requestId: string, optionId: string, guidance?: string): void {
+    const resolver = this.pendingEscalations.get(requestId);
+    if (resolver) {
+      this.pendingEscalations.delete(requestId);
+      resolver({ optionId, guidance });
+    }
+  }
+
+  async requestApproval(req: {
+    what: 'shell' | 'edit';
+    command?: string;
+    path?: string;
+    patch?: string;
+  }): Promise<boolean> {
+    const destructive = req.command ? isCommandDestructive(req.command) : false;
+    const mode = getPermissionMode();
+
+    if (req.command && this.alwaysAllow.has(req.command)) return true;
+    if (mode === 'auto' && !destructive) return true;
+    if (mode === 'acceptEdits' && req.what === 'edit') return true;
+    if (isHeadless()) return !destructive;
+
+    const requestId = crypto.randomUUID();
+    const decision = new Promise<'yes' | 'always' | 'no'>((resolve) => this.pendingApprovals.set(requestId, resolve));
+    this.emit<ApprovalRequestEvent>({ kind: 'approval-request', requestId, destructive, ...req });
+    const answer = await decision;
+    if (answer === 'always' && req.command) this.alwaysAllow.add(req.command);
+    return answer !== 'no';
+  }
+
+  async runGoal(goal: string, customId?: string): Promise<void> {
+    await this.recordInitialState();
+    const taskId = customId || crypto.randomUUID();
+    this.memory.createTask(taskId, goal, 'planning');
+
+    try {
       await this.indexer.indexDirectory(process.cwd());
+    } catch {
+      // ignore index failure
     }
 
-    await this.recordInitialState();
-    this.memory.createTask(taskId, goal, 'planning');
     await this.executeOrchestrationLoop(taskId);
   }
 
@@ -203,7 +179,6 @@ export class Orchestrator {
     if (!taskRecord) {
       throw new Error(`Task with ID ${taskId} not found in database.`);
     }
-    console.log(`[Orchestrator] Resuming task ${taskId} from state: ${taskRecord.state}`);
     await this.executeOrchestrationLoop(taskId);
   }
 
@@ -217,49 +192,64 @@ export class Orchestrator {
   private async recordInitialState() {
     try {
       this.initialCommit = this.runCommand('git rev-parse HEAD');
-    } catch (e) {
+    } catch {
       // not a git repo
     }
   }
 
-  private rollbackWorkspace() {
-    console.warn(`[Orchestrator] Budget exceeded! Rolling back workspace changes...`);
-    if (this.initialCommit) {
-      try {
-        this.runCommand(`git reset --hard ${this.initialCommit}`);
-        this.runCommand('git clean -fd');
-        console.log(`[Orchestrator] Git workspace successfully rolled back to ${this.initialCommit}`);
-      } catch (e) {
-        console.error(`[Orchestrator] Git rollback failed:`, e);
-      }
+  private async rollbackWorkspace(): Promise<void> {
+    const allowed = configStore.get().safety.allowDestructiveRollback;
+    if (!this.initialCommit) return;
+
+    if (!allowed) {
+      this.emit<NoticeEvent>({
+        kind: 'notice',
+        level: 'warn',
+        text: `Budget exceeded. Not rolling back automatically. To restore: git reset --hard ${this.initialCommit}`,
+      });
+      return;
+    }
+
+    const approved = await this.requestApproval({
+      what: 'shell',
+      command: `git reset --hard ${this.initialCommit} && git clean -fd`,
+    });
+    if (!approved) return;
+
+    try {
+      this.runCommand(`git reset --hard ${this.initialCommit}`);
+      this.runCommand('git clean -fd');
+    } catch (e) {
+      this.emit<NoticeEvent>({
+        kind: 'notice',
+        level: 'error',
+        text: `Git rollback failed: ${(e as Error).message}`,
+      });
     }
   }
 
   private async checkBudgets(taskId: string, currentTask?: any) {
     const config = ConfigManager.loadConfig();
 
-    // Monthly Budget check
     const monthlyLimit = config.budget?.maxMonthlyCostUsd ?? 100.0;
     const monthlySpent = await this.costEngine.getMonthlySpent();
     if (monthlySpent > monthlyLimit) {
-      this.rollbackWorkspace();
+      await this.rollbackWorkspace();
       this.costEngine.terminateDueToBudget(`Monthly budget of $${monthlyLimit} exceeded. Spent: $${monthlySpent}`);
     }
 
-    // Session/Goal Budget check
     const sessionLimit = config.budget?.maxSessionCostUsd ?? 10.0;
     const sessionSpent = await this.costEngine.getGoalSpent(taskId);
     if (sessionSpent > sessionLimit) {
-      this.rollbackWorkspace();
+      await this.rollbackWorkspace();
       this.costEngine.terminateDueToBudget(`Session budget of $${sessionLimit} exceeded. Spent: $${sessionSpent}`);
     }
 
-    // Task-specific Budget check
     if (currentTask) {
       const taskLimit = currentTask.maxCost || config.budget?.maxTaskCostUsd || 2.0;
       const taskSpent = await this.costEngine.getTaskSpent(currentTask.id);
       if (taskSpent > taskLimit) {
-        this.rollbackWorkspace();
+        await this.rollbackWorkspace();
         this.costEngine.terminateDueToBudget(
           `Task budget of $${taskLimit} exceeded for task ${currentTask.id}. Spent: $${taskSpent}`,
         );
@@ -268,50 +258,35 @@ export class Orchestrator {
   }
 
   private async promptUserForEscalation(taskId: string, reason: string): Promise<string> {
-    console.warn(`
-⚠️ ESCALATION: ${reason}`);
-    if (isTestEnv() || !process.stdin.isTTY) {
-      console.warn(`Non-interactive environment detected. Auto-aborting.`);
+    if (isTestEnv() || isHeadless()) {
       return 'abort';
     }
 
-    const readline = await import('node:readline');
-    const rl = readline.createInterface({
-      input: process.stdin,
-      output: process.stdout,
+    const requestId = crypto.randomUUID();
+    const resultPromise = new Promise<{ optionId: string; guidance?: string }>((resolve) =>
+      this.pendingEscalations.set(requestId, resolve),
+    );
+
+    this.emit<EscalationEvent>({
+      kind: 'escalation',
+      requestId,
+      reason,
+      options: [
+        { id: 'continue', label: 'Ignore and continue' },
+        { id: 'replan', label: 'Re-plan from scratch' },
+        { id: 'abort', label: 'Abort' },
+      ],
     });
 
-    return new Promise((resolve) => {
-      rl.question(
-        `\
-[Orchestrator] ${reason}\
-Choose action:\
-  [1] Ignore and continue\
-  [2] Re-plan from scratch (provide guidance)\
-  [3] Abort\
-Choice: `,
-        (answer) => {
-          const clean = answer.trim();
-          if (clean === '1') {
-            rl.close();
-            resolve('continue');
-          } else if (clean === '2') {
-            rl.question(
-              `\
-Enter manual correction / guidance for the Planner:\
-> `,
-              (guidance) => {
-                rl.close();
-                resolve(`replan:${guidance.trim()}`);
-              },
-            );
-          } else {
-            rl.close();
-            resolve('abort');
-          }
-        },
-      );
-    });
+    const answer = await resultPromise;
+    if (answer.optionId === 'replan') {
+      return `replan:${answer.guidance || ''}`;
+    }
+    return answer.optionId;
+  }
+
+  abortActiveSessions(): void {
+    // Session abort helper
   }
 
   private async executeOrchestrationLoop(taskId: string): Promise<void> {
@@ -332,19 +307,18 @@ Enter manual correction / guidance for the Planner:\
       if (this.loopDetector.detectOscillation(sig)) {
         const choice = await this.promptUserForEscalation(taskId, 'Oscillation loop detected!');
         if (choice === 'continue') {
-          console.log(`[Orchestrator] User chose to continue. Resetting loop detector.`);
           this.loopDetector.clear();
         } else if (choice.startsWith('replan')) {
           const guidance = choice.split('replan:')[1] || '';
-          console.log(`[Orchestrator] User chose to re-plan with manual guidance.`);
-          this.memory.updateTaskState(taskId, 'planning', {
-            replanFromIndex: taskRecord.current_task_index,
-            manualGuidance: guidance,
-          });
+          this.updateState(taskId, 'planning');
+          this.memory.logStateTransition(
+            taskId,
+            'planning',
+            JSON.stringify({ replanFromIndex: taskRecord.current_task_index, manualGuidance: guidance }),
+          );
           continue;
         } else {
-          console.error(`[Orchestrator] Aborting execution.`);
-          this.memory.updateTaskState(taskId, 'failed', { error: 'Oscillation loop detected' });
+          this.updateState(taskId, 'failed');
           return;
         }
       }
@@ -360,10 +334,10 @@ Enter manual correction / guidance for the Planner:\
           await this.handleVerifying(taskRecord);
           break;
         case 'done':
-          console.log(`[Orchestrator] Goal completed successfully!`);
+          this.emit<PhaseEvent>({ kind: 'phase', phase: 'done', detail: 'Completed' });
           return;
         case 'failed':
-          console.error(`[Orchestrator] Goal failed.`);
+          this.emit<PhaseEvent>({ kind: 'phase', phase: 'failed', detail: 'Execution failed' });
           return;
         default:
           throw new Error(`Unknown state: ${taskRecord.state}`);
@@ -372,13 +346,13 @@ Enter manual correction / guidance for the Planner:\
   }
 
   private async handlePlanning(record: TaskRecord): Promise<void> {
-    console.log(`[Orchestrator] [PLANNING] Planning tasks for goal: "${record.goal}"`);
-
+    this.emit<PhaseEvent>({ kind: 'phase', phase: 'planning', detail: record.goal });
     const classification = Classifier.classifyGoal(record.goal);
     const logs = this.memory.getStateLogs(record.id);
     let isReplan = false;
     let failureEvidence = '';
     let manualGuidance = '';
+
     for (let i = logs.length - 1; i >= 0; i--) {
       try {
         const log = logs[i] as any;
@@ -389,13 +363,12 @@ Enter manual correction / guidance for the Planner:\
           manualGuidance = meta.manualGuidance || '';
           break;
         }
-      } catch (e) {
+      } catch {
         /* ignore */
       }
     }
 
     if (classification.path === 'single_agent' && !isReplan) {
-      console.log(`[Orchestrator] [PLANNING] Simple task detected. Using fast-track Single-Agent Path.`);
       const simpleTask: Task = {
         id: 'fast-track-task',
         description: record.goal,
@@ -408,8 +381,15 @@ Enter manual correction / guidance for the Planner:\
         maxCost: 1.0,
         timeout: 100,
       };
-      this.memory.updateTaskPlan(record.id, [[simpleTask]] as any);
-      this.memory.updateTaskState(record.id, 'executing', { plan: [[simpleTask]] });
+      this.memory.updateTaskPlan(record.id, JSON.stringify([[simpleTask]]));
+      this.updateState(record.id, 'executing');
+      this.emit<PlanEvent>({
+        kind: 'plan',
+        batches: [
+          [{ id: simpleTask.id, description: simpleTask.description, writeAllowlist: simpleTask.writeAllowlist }],
+        ],
+        replanned: false,
+      });
       return;
     }
 
@@ -444,7 +424,7 @@ Enter manual correction / guidance for the Planner:\
           contextHints: { relevantFiles: [], relevantSymbols: [], techStack: [] },
         };
         const fullFailureContext =
-          failureEvidence + (manualGuidance ? `\\nUSER MANUAL GUIDANCE:\\n${manualGuidance}` : '');
+          failureEvidence + (manualGuidance ? `\nUSER MANUAL GUIDANCE:\n${manualGuidance}` : '');
 
         await this.contextEngine.initializeLSP(process.cwd());
         const projectContext = await this.contextEngine.assembleContext(goalIR);
@@ -466,7 +446,7 @@ Enter manual correction / guidance for the Planner:\
             timeout: node.budget ? node.budget.maxDurationSeconds : 100,
           })),
         );
-      } catch (e) {
+      } catch {
         if (isReplan) {
           const fullContext = failureEvidence + (manualGuidance ? `\nUSER MANUAL GUIDANCE:\n${manualGuidance}` : '');
           const flatPlan = await this.planner.planGoal(record.goal, '', fullContext);
@@ -477,22 +457,25 @@ Enter manual correction / guidance for the Planner:\
         }
       }
       const validation = validatePlan(plan.flat());
-      if (validation.warnings.length > 0) {
-        console.warn(`[Orchestrator] [PLANNING] Plan warnings:`);
-        validation.warnings.forEach((w) => console.warn(`  - ${w}`));
-      }
       if (!validation.valid) {
         throw new Error('Generated plan is invalid');
       }
-      this.memory.updateTaskPlan(record.id, plan);
+      this.memory.updateTaskPlan(record.id, JSON.stringify(plan));
     }
 
-    this.memory.updateTaskState(record.id, 'executing', { plan });
+    this.emit<PlanEvent>({
+      kind: 'plan',
+      batches: plan.map((b) =>
+        b.map((t) => ({ id: t.id, description: t.description, writeAllowlist: t.writeAllowlist || [] })),
+      ),
+      replanned: isReplan,
+    });
+    this.updateState(record.id, 'executing');
   }
 
   private async handleExecuting(record: TaskRecord): Promise<void> {
     if (!record.plan_json) {
-      this.memory.updateTaskState(record.id, 'failed', { error: 'No plan found in executing state' });
+      this.updateState(record.id, 'failed');
       return;
     }
 
@@ -500,75 +483,49 @@ Enter manual correction / guidance for the Planner:\
     const currentIndex = record.current_task_index;
 
     if (currentIndex >= plan.length) {
-      this.memory.updateTaskState(record.id, 'done');
+      this.updateState(record.id, 'done');
       return;
     }
 
     const currentBatch = plan[currentIndex];
-    console.log(
-      `[Orchestrator] [EXECUTING] Batch ${currentIndex + 1}/${plan.length}: executing ${currentBatch.length} tasks concurrently`,
-    );
+    this.emit<PhaseEvent>({
+      kind: 'phase',
+      phase: 'executing',
+      detail: `batch ${currentIndex + 1}/${plan.length}`,
+    });
 
-    // Dynamic Agent Scaling
-    // Evaluate batch size and dynamically spawn EngineerAgent instances based on system load and budget
     const config = ConfigManager.loadConfig();
     const systemCores = os.cpus().length;
     const loadAvg = os.loadavg()[0];
-
-    // Calculate a dynamic cap based on available CPU headroom (leaving 1 core for orchestrator)
     const availableCores = Math.max(1, systemCores - 1);
-
-    // Scale down if system load is high (e.g. load > cores)
     const loadFactor = loadAvg > systemCores ? 0.5 : 1.0;
-
-    // Configured cap from user, defaulting to 5
     const configuredCap = config.maxParallelAgents || 5;
-
     const maxAgentCap = Math.min(configuredCap, Math.floor(availableCores * loadFactor));
     const numAgentsNeeded = Math.min(currentBatch.length, Math.max(1, maxAgentCap));
-    console.log(
-      `[Orchestrator] Scaling dynamically: Spawning ${numAgentsNeeded} EngineerAgent worker(s) for ${currentBatch.length} tasks (Load: ${loadAvg.toFixed(2)}, Cores: ${systemCores}).`,
-    );
 
-    // Create a pool of EngineerAgents
-    const engineerAgents = Array.from({ length: numAgentsNeeded }, () => new EngineerAgent(this.opencode.client));
+    const engineerAgents = Array.from(
+      { length: numAgentsNeeded },
+      () => new EngineerAgent(this.opencode.client, undefined, this.memoryEngine),
+    );
 
     const startTime = Date.now();
 
-    // Map tasks to agents round-robin
     await Promise.all(
       currentBatch.map(async (currentTask, index) => {
         const workerAgent = engineerAgents[index % numAgentsNeeded];
+        this.emit<TaskStateEvent>({
+          kind: 'task-state',
+          taskId: currentTask.id,
+          title: currentTask.description,
+          batchIndex: currentIndex,
+          status: 'running',
+        });
+
         let execIR;
         try {
           if (isTestEnv()) {
             throw new Error('VITEST fallback');
           }
-
-          const _modelSelection = this.dynamicRouter.route(
-            {
-              id: currentTask.id,
-              type: currentTask.category as any,
-              description: currentTask.description,
-              goal: currentTask.goal,
-              systemPrompt: currentTask.systemPrompt,
-              inputs: [],
-              outputs: [],
-              dependencies: [],
-              readAllowlist: [],
-              writeAllowlist: currentTask.writeAllowlist,
-              modelSpec: { tier: 'frontier' },
-              budget: {
-                maxCostUsd: currentTask.maxCost || 1.0,
-                maxDurationSeconds: currentTask.timeout || 100,
-                maxRetries: 3,
-                maxTokens: 4000,
-              },
-              acceptanceCriteria: [],
-              agentRole: 'engineer',
-            },
-            0.5,
-          );
 
           const taskNode: TaskNode = {
             id: currentTask.id,
@@ -610,30 +567,69 @@ Enter manual correction / guidance for the Planner:\
 
           const worktreePath = this.worktreeScheduler.createWorktree(currentTask.id, 'main');
           execIR = await workerAgent.executeTask(taskNode, compressedContext, worktreePath);
-        } catch (e) {
-          // Fallback or test mode
-          execIR = {
+
+          this.emit<TaskStateEvent>({
+            kind: 'task-state',
             taskId: currentTask.id,
-            sessionId: 'mock-session',
-            modelUsed: 'mock-model',
-            cost: 0.01,
-            durationMs: 100,
-            steps: [],
-            gitState: { branch: 'main', commitBefore: 'initial', commitAfter: 'initial', worktreePath: process.cwd() },
-          };
-          const memoryEngine = new MemoryEngine();
-          memoryEngine.saveTaskExecution(currentTask.id, JSON.stringify(execIR));
+            title: currentTask.description,
+            batchIndex: currentIndex,
+            status: 'passed',
+            costUsd: execIR.cost,
+            durationMs: execIR.durationMs,
+          });
+        } catch (err: any) {
+          if (isTestEnv()) {
+            execIR = {
+              taskId: currentTask.id,
+              sessionId: 'mock-session',
+              modelUsed: 'mock-model',
+              cost: 0.01,
+              durationMs: 100,
+              steps: [],
+              gitState: {
+                branch: 'main',
+                commitBefore: 'initial',
+                commitAfter: 'initial',
+                worktreePath: process.cwd(),
+              },
+            };
+            this.memoryEngine.saveTaskExecution(currentTask.id, JSON.stringify(execIR));
+            this.emit<TaskStateEvent>({
+              kind: 'task-state',
+              taskId: currentTask.id,
+              title: currentTask.description,
+              batchIndex: currentIndex,
+              status: 'passed',
+              costUsd: 0.01,
+              durationMs: 100,
+            });
+          } else {
+            this.emit<NoticeEvent>({
+              kind: 'notice',
+              level: 'error',
+              text: `Task "${currentTask.description}" failed to execute: ${err.message}`,
+            });
+            this.emit<TaskStateEvent>({
+              kind: 'task-state',
+              taskId: currentTask.id,
+              title: currentTask.description,
+              batchIndex: currentIndex,
+              status: 'failed',
+            });
+            throw err;
+          }
         }
       }),
     );
 
     const durationMs = Date.now() - startTime;
-    this.memory.updateTaskState(record.id, 'verifying', { durationMs });
+    this.memory.logStateTransition(record.id, 'executing', JSON.stringify({ durationMs }));
+    this.updateState(record.id, 'verifying');
   }
 
   private async handleVerifying(record: TaskRecord): Promise<void> {
     if (!record.plan_json) {
-      this.memory.updateTaskState(record.id, 'failed', { error: 'No plan found in verifying state' });
+      this.updateState(record.id, 'failed');
       return;
     }
 
@@ -641,7 +637,11 @@ Enter manual correction / guidance for the Planner:\
     const currentIndex = record.current_task_index;
     const currentBatch = plan[currentIndex];
 
-    console.log(`[Orchestrator] [VERIFYING] Verifying batch of ${currentBatch.length} tasks...`);
+    this.emit<PhaseEvent>({
+      kind: 'phase',
+      phase: 'verifying',
+      detail: `verifying batch ${currentIndex + 1}/${plan.length}`,
+    });
 
     const reports = await Promise.all(
       currentBatch.map(async (currentTask) => {
@@ -674,6 +674,20 @@ Enter manual correction / guidance for the Planner:\
           };
 
           const verificationIR = await this.verifierAgent.verifyTask(taskNode);
+          this.emit<VerificationEvent>({
+            kind: 'verification',
+            taskId: currentTask.id,
+            layers: verificationIR.layers.map((l) => ({
+              name: l.name,
+              type: l.type as any,
+              status: l.passed ? 'passed' : 'failed',
+              durationMs: l.durationMs,
+              evidence: l.evidence,
+            })),
+            overallPass: verificationIR.overallPass,
+            retryHint: verificationIR.retryHint,
+          });
+
           report = {
             taskId: currentTask.id,
             layers: {
@@ -688,7 +702,7 @@ Enter manual correction / guidance for the Planner:\
             timestamp: new Date().toISOString(),
             evidence: verificationIR.retryHint,
           };
-        } catch (e) {
+        } catch {
           report = await Verifier.verifyTask(currentTask);
           (report as any).evidence = report.layers?.compile?.stdout || report.layers?.compile?.stderr || '';
         }
@@ -700,56 +714,56 @@ Enter manual correction / guidance for the Planner:\
 
     for (const { report } of reports) {
       this.memory.saveTaskResult(record.id, currentIndex, report, 0.05, report.layers?.compile?.durationMs || 0);
+      await this.costEngine.recordSpend(record.id, report.taskId, 'engine', 1000, 0.05);
+      const totalSpent = await this.costEngine.getGoalSpent(record.id);
+      this.emit<CostEvent>({
+        kind: 'cost',
+        goalUsd: totalSpent,
+        goalLimitUsd: configStore.get().budget.maxGoalCostUsd,
+      });
     }
 
     if (allPassed) {
-      console.log(`[Orchestrator] [VERIFYING] Batch passed verification!`);
-      const memoryEngine = new MemoryEngine(this.dbPath);
       for (const { currentTask } of reports) {
         if (!isTestEnv()) {
           await this.worktreeScheduler.mergeBranch('main', `branch-${currentTask.id}`);
         }
         this.worktreeScheduler.removeWorktree(currentTask.id);
 
-        // Extract project memory lessons and conventions
-        const reviewJson = memoryEngine.getTaskReview(currentTask.id);
+        const reviewJson = this.memoryEngine.getTaskReview(currentTask.id);
         if (reviewJson) {
           try {
             const review = JSON.parse(reviewJson);
             if (review.comments && Array.isArray(review.comments)) {
               for (const comment of review.comments) {
                 if (comment.severity === 'nit') {
-                  memoryEngine.addProjectLesson(comment.message, '');
+                  this.memoryEngine.addProjectLesson(comment.message, '');
                 } else if (comment.severity === 'issue') {
-                  memoryEngine.addProjectLesson('', comment.message);
+                  this.memoryEngine.addProjectLesson('', comment.message);
                 } else {
-                  memoryEngine.addProjectLesson(comment.message, comment.message);
+                  this.memoryEngine.addProjectLesson(comment.message, comment.message);
                 }
               }
             }
-          } catch (e) {
-            console.error(`[Orchestrator] Failed to parse task review for project memory:`, e);
+          } catch {
+            // ignore JSON parse error
           }
         }
       }
 
       const nextIndex = currentIndex + 1;
       if (nextIndex >= plan.length) {
-        this.memory.updateTaskState(record.id, 'done');
+        this.updateState(record.id, 'done');
       } else {
-        this.memory.updateTaskProgress(record.id, nextIndex, record.total_cost + 0.05 * currentBatch.length);
-        this.memory.updateTaskState(record.id, 'executing');
+        this.memory.updateTaskProgress(record.id, nextIndex);
+        this.updateState(record.id, 'executing');
       }
     } else {
-      console.error(`[Orchestrator] [VERIFYING] Batch failed verification.`);
       const logs = this.memory.getStateLogs(record.id);
       const attempts = logs.filter((l: any) => l.phase === 'executing').length;
 
       if (attempts < MAX_RETRIES) {
-        console.log(`[Orchestrator] [VERIFYING] Retrying batch (Attempt ${attempts + 1}/${MAX_RETRIES})`);
-
         const failedTasks = reports.filter((r) => !r.report.overallPass);
-
         for (const { currentTask, report } of failedTasks) {
           const failureEvidence = `
 === PREVIOUS ATTEMPT FAILED ===
@@ -759,28 +773,26 @@ ${(report as any).evidence || ''}
 `;
           const updatedTask = {
             ...currentTask,
-            systemPrompt: `${currentTask.systemPrompt || ''}
-${failureEvidence}`,
+            systemPrompt: `${currentTask.systemPrompt || ''}\n${failureEvidence}`,
           };
           const taskIndexInBatch = currentBatch.findIndex((t) => t.id === currentTask.id);
           plan[currentIndex][taskIndexInBatch] = updatedTask;
         }
 
-        this.memory.updateTaskPlan(record.id, plan);
-        this.memory.updateTaskState(record.id, 'executing', { retryAttempt: attempts + 1 });
+        this.memory.updateTaskPlan(record.id, JSON.stringify(plan));
+        this.memory.logStateTransition(record.id, 'executing', JSON.stringify({ retryAttempt: attempts + 1 }));
+        this.updateState(record.id, 'executing');
       } else {
-        console.error(`[Orchestrator] [VERIFYING] Max retries exhausted. Initiating re-planning...`);
         const failedTasks = reports.filter((r) => !r.report.overallPass);
         const aggregatedEvidence = failedTasks
           .map((r) => `Task ${r.currentTask.description} failed: ${(r.report as any).evidence}`)
-          .join(
-            '\
-',
-          );
-        this.memory.updateTaskState(record.id, 'planning', {
-          replanFromIndex: currentIndex,
-          failureEvidence: aggregatedEvidence,
-        });
+          .join('\n');
+        this.memory.logStateTransition(
+          record.id,
+          'planning',
+          JSON.stringify({ replanFromIndex: currentIndex, failureEvidence: aggregatedEvidence }),
+        );
+        this.updateState(record.id, 'planning');
       }
     }
   }
