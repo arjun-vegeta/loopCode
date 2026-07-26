@@ -1,13 +1,15 @@
-import React, { PropsWithChildren } from 'react';
-import { Box, Text, BoxProps, TextProps } from 'ink';
-import { COLORS } from '../theme.js';
+import React, { type PropsWithChildren } from 'react';
+import { Box, Text, type BoxProps, type TextProps } from 'ink';
+import { useTheme } from '../theme-context.js';
+import { c, type Palette } from '../theme.js';
 
 interface ThemedTextProps extends PropsWithChildren<TextProps> {
-  variant?: keyof typeof COLORS;
+  variant?: keyof Palette;
 }
 
 export function ThemedText({ variant, children, ...props }: ThemedTextProps) {
-  const color = variant ? COLORS[variant] : props.color;
+  const theme = useTheme();
+  const color = variant ? c(theme, variant) : props.color;
   return (
     <Text {...props} color={color}>
       {children}
@@ -16,11 +18,12 @@ export function ThemedText({ variant, children, ...props }: ThemedTextProps) {
 }
 
 interface ThemedBoxProps extends PropsWithChildren<BoxProps> {
-  variant?: keyof typeof COLORS;
+  variant?: keyof Palette;
 }
 
 export function ThemedBox({ variant, children, ...props }: ThemedBoxProps) {
-  const borderColor = variant ? COLORS[variant] : props.borderColor;
+  const theme = useTheme();
+  const borderColor = variant ? c(theme, variant) : props.borderColor;
   return (
     <Box {...props} borderColor={borderColor}>
       {children}
