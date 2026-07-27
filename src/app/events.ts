@@ -158,7 +158,25 @@ export type AppEvent =
 
 export type AppEventKind = AppEvent['kind'];
 
-type Handler = (event: AppEvent) => void;
+import { redact } from './redact.js';
+
+/** Fields that may contain model or command output. */
+const TEXTUAL_FIELDS = ['text', 'summary', 'detail', 'patch', 'evidence', 'message', 'retryHint', 'command'] as const;
+
+function scrub(event: AppEvent): AppEvent {
+  const clone: Record<string, unknown> = { ...(event as object) };
+  for (const field of TEXTUAL_FIELDS) {
+    if (typeof clone[field] === 'string') clone[field] = redact(clone[field] as string);
+  }
+  if (Array.isArray(clone.layers)) {
+    clone.layers = (clone.layers as Array<Record<string, unknown>>).map((l) =>
+      typeof l.evidence === 'string' ? { ...l, evidence: redact(l.evidence) } : l,
+    );
+  }
+  return clone as unknown as AppEvent;
+}
+
+export type Handler = (event: AppEvent) => void;
 
 let seq = 0;
 
@@ -189,13 +207,14 @@ export class EventBus {
   }
 
   emit(event: AppEvent): void {
-    this.buffer.push(event);
+    const safe = scrub(event);
+    this.buffer.push(safe);
     if (this.buffer.length > this.maxBuffer) {
       this.buffer.splice(0, this.buffer.length - this.maxBuffer);
     }
     for (const handler of this.handlers) {
       try {
-        handler(event);
+        handler(safe);
       } catch {
         // A broken subscriber must never break the engine.
       }
