@@ -6,3 +6,5 @@ local_cache/
 loopcode
 sea-prep.blob
 .loopcode-tmp-*.mjs
+.env
+.npmrc
