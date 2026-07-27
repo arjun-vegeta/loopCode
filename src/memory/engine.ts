@@ -12,20 +12,19 @@ export interface PerformanceLog {
 
 export class MemoryEngine {
   private dbPath: string;
+  db: Database;
 
   constructor(dbPath: string = 'loopcode.db') {
     this.dbPath = dbPath;
+    this.db = new Database(dbPath);
+    this.db.exec('PRAGMA journal_mode = WAL;');
+    this.db.exec('PRAGMA foreign_keys = ON;');
     this.initializeTables();
   }
 
-  private getDb() {
-    return new Database(this.dbPath);
-  }
-
   private initializeTables() {
-    const db = this.getDb();
-    try {
-      db.prepare(
+    this.db
+      .prepare(
         `
         CREATE TABLE IF NOT EXISTS working_memory (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -35,9 +34,11 @@ export class MemoryEngine {
           updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
         )
       `,
-      ).run();
+      )
+      .run();
 
-      db.prepare(
+    this.db
+      .prepare(
         `
         CREATE TABLE IF NOT EXISTS project_memory (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -49,9 +50,11 @@ export class MemoryEngine {
           created_at DATETIME DEFAULT CURRENT_TIMESTAMP
         )
       `,
-      ).run();
+      )
+      .run();
 
-      db.prepare(
+    this.db
+      .prepare(
         `
         CREATE TABLE IF NOT EXISTS task_plans (
           task_id TEXT PRIMARY KEY,
@@ -60,9 +63,11 @@ export class MemoryEngine {
           created_at DATETIME DEFAULT CURRENT_TIMESTAMP
         )
       `,
-      ).run();
+      )
+      .run();
 
-      db.prepare(
+    this.db
+      .prepare(
         `
         CREATE TABLE IF NOT EXISTS task_executions (
           task_id TEXT PRIMARY KEY,
@@ -70,9 +75,11 @@ export class MemoryEngine {
           created_at DATETIME DEFAULT CURRENT_TIMESTAMP
         )
       `,
-      ).run();
+      )
+      .run();
 
-      db.prepare(
+    this.db
+      .prepare(
         `
         CREATE TABLE IF NOT EXISTS task_reviews (
           task_id TEXT PRIMARY KEY,
@@ -80,9 +87,11 @@ export class MemoryEngine {
           created_at DATETIME DEFAULT CURRENT_TIMESTAMP
         )
       `,
-      ).run();
+      )
+      .run();
 
-      db.prepare(
+    this.db
+      .prepare(
         `
         CREATE TABLE IF NOT EXISTS code_graph_nodes (
           id TEXT PRIMARY KEY,
@@ -96,9 +105,11 @@ export class MemoryEngine {
           updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
         )
       `,
-      ).run();
+      )
+      .run();
 
-      db.prepare(
+    this.db
+      .prepare(
         `
         CREATE TABLE IF NOT EXISTS code_graph_edges (
           source_id TEXT,
@@ -107,9 +118,11 @@ export class MemoryEngine {
           PRIMARY KEY (source_id, target_id, relationship)
         )
       `,
-      ).run();
+      )
+      .run();
 
-      db.prepare(
+    this.db
+      .prepare(
         `
         CREATE VIRTUAL TABLE IF NOT EXISTS code_search USING fts5(
           id UNINDEXED,
@@ -119,93 +132,82 @@ export class MemoryEngine {
           docstring
         )
       `,
-      ).run();
-    } finally {
-      db.close();
-    }
+      )
+      .run();
   }
 
   // --- Code Graph Memory ---
 
   saveCodeGraphNodes(nodes: any[]) {
-    const db = this.getDb();
-    try {
-      const insertNode = db.prepare(`
-        INSERT INTO code_graph_nodes (id, file_path, name, type, line_start, line_end, signature, docstring)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT(id) DO UPDATE SET
-          file_path = excluded.file_path,
-          name = excluded.name,
-          type = excluded.type,
-          line_start = excluded.line_start,
-          line_end = excluded.line_end,
-          signature = excluded.signature,
-          docstring = excluded.docstring,
-          updated_at = CURRENT_TIMESTAMP
-      `);
+    const insertNode = this.db.prepare(`
+      INSERT INTO code_graph_nodes (id, file_path, name, type, line_start, line_end, signature, docstring)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET
+        file_path = excluded.file_path,
+        name = excluded.name,
+        type = excluded.type,
+        line_start = excluded.line_start,
+        line_end = excluded.line_end,
+        signature = excluded.signature,
+        docstring = excluded.docstring,
+        updated_at = CURRENT_TIMESTAMP
+    `);
 
-      const insertFTS = db.prepare(`
-        INSERT INTO code_search (id, file_path, name, signature, docstring)
-        VALUES (?, ?, ?, ?, ?)
-      `);
+    const insertFTS = this.db.prepare(`
+      INSERT INTO code_search (id, file_path, name, signature, docstring)
+      VALUES (?, ?, ?, ?, ?)
+    `);
 
-      const deleteFTS = db.prepare(`DELETE FROM code_search WHERE id = ?`);
+    const deleteFTS = this.db.prepare(`DELETE FROM code_search WHERE id = ?`);
 
-      const insertEdge = db.prepare(`
-        INSERT OR IGNORE INTO code_graph_edges (source_id, target_id, relationship)
-        VALUES (?, ?, ?)
-      `);
+    const insertEdge = this.db.prepare(`
+      INSERT OR IGNORE INTO code_graph_edges (source_id, target_id, relationship)
+      VALUES (?, ?, ?)
+    `);
 
-      db.transaction(() => {
-        for (const node of nodes) {
-          insertNode.run(
-            node.id,
-            node.path,
-            node.name,
-            node.type,
-            node.lineStart,
-            node.lineEnd,
-            node.signature,
-            node.docstring || null,
-          );
+    this.db.transaction(() => {
+      for (const node of nodes) {
+        insertNode.run(
+          node.id,
+          node.path,
+          node.name,
+          node.type,
+          node.lineStart,
+          node.lineEnd,
+          node.signature,
+          node.docstring || null,
+        );
 
-          deleteFTS.run(node.id);
-          insertFTS.run(node.id, node.path, node.name, node.signature, node.docstring || '');
+        deleteFTS.run(node.id);
+        insertFTS.run(node.id, node.path, node.name, node.signature, node.docstring || '');
 
-          if (node.children && Array.isArray(node.children)) {
-            for (const childId of node.children) {
-              insertEdge.run(node.id, childId, 'contains');
-            }
+        if (node.children && Array.isArray(node.children)) {
+          for (const childId of node.children) {
+            insertEdge.run(node.id, childId, 'contains');
           }
         }
-      })();
-    } finally {
-      db.close();
-    }
+      }
+    })();
   }
 
   deleteCodeGraphForFile(filePath: string) {
-    const db = this.getDb();
-    try {
-      db.prepare(
+    this.db
+      .prepare(
         `
-        DELETE FROM code_graph_edges 
-        WHERE source_id IN (SELECT id FROM code_graph_nodes WHERE file_path = ?)
-           OR target_id IN (SELECT id FROM code_graph_nodes WHERE file_path = ?)
-      `,
-      ).run(filePath, filePath);
+      DELETE FROM code_graph_edges 
+      WHERE source_id IN (SELECT id FROM code_graph_nodes WHERE file_path = ?)
+         OR target_id IN (SELECT id FROM code_graph_nodes WHERE file_path = ?)
+    `,
+      )
+      .run(filePath, filePath);
 
-      db.prepare(`DELETE FROM code_search WHERE file_path = ?`).run(filePath);
-      db.prepare(`DELETE FROM code_graph_nodes WHERE file_path = ?`).run(filePath);
-    } finally {
-      db.close();
-    }
+    this.db.prepare(`DELETE FROM code_search WHERE file_path = ?`).run(filePath);
+    this.db.prepare(`DELETE FROM code_graph_nodes WHERE file_path = ?`).run(filePath);
   }
 
   getSymbolsForFile(filePath: string): any[] {
-    const db = this.getDb();
     try {
-      const rows = db
+      const rows = this.db
         .prepare(
           `
         SELECT id, file_path as path, name, type, line_start as lineStart, line_end as lineEnd, signature
@@ -214,10 +216,8 @@ export class MemoryEngine {
         )
         .all(filePath);
       return rows;
-    } catch (e) {
+    } catch {
       return [];
-    } finally {
-      db.close();
     }
   }
 
@@ -225,11 +225,9 @@ export class MemoryEngine {
     const results: any[] = [];
 
     // 1. FTS5 Search
-    const db = this.getDb();
     try {
-      // Basic escaping for FTS query
       const ftsQuery = query.replace(/["']/g, '');
-      const ftsRows = db
+      const ftsRows = this.db
         .prepare(
           `
         SELECT id, file_path, name, signature, docstring, rank as score
@@ -243,10 +241,8 @@ export class MemoryEngine {
       for (const row of ftsRows) {
         results.push({ ...(row as any), source: 'fts' });
       }
-    } catch (e) {
-      // FTS syntax errors or empty graph
-    } finally {
-      db.close();
+    } catch {
+      // ignore empty/syntax errors
     }
 
     // 2. Vector Search
@@ -256,13 +252,10 @@ export class MemoryEngine {
       for (const res of vecResults) {
         results.push({ ...res, source: 'semantic' });
       }
-    } catch (e) {
-      // Semantic memory might not be initialized
+    } catch {
+      // ignore missing semantic memory
     }
 
-    // Sort combined results by score/distance loosely (Note: they are in different scales)
-    // FTS score is usually negative (more negative is better), distance is positive (closer to 0 is better).
-    // For now, we'll just return the concatenated list since we don't have a normalized reciprocal rank fusion.
     return results;
   }
 
@@ -270,25 +263,24 @@ export class MemoryEngine {
    * Log model routing performance for future routing heuristics.
    */
   logPerformance(log: PerformanceLog) {
-    const db = this.getDb();
     try {
-      db.prepare(
-        `
+      this.db
+        .prepare(
+          `
         INSERT INTO model_performance (model, task_type, task_complexity, success, cost, duration_ms)
         VALUES (?, ?, ?, ?, ?, ?)
       `,
-      ).run(
-        log.model,
-        log.taskType,
-        log.complexity === 'complex' ? 5 : 1,
-        log.success ? 1 : 0,
-        log.cost,
-        log.durationMs,
-      );
-    } catch (err) {
+        )
+        .run(
+          log.model,
+          log.taskType,
+          log.complexity === 'complex' ? 5 : 1,
+          log.success ? 1 : 0,
+          log.cost,
+          log.durationMs,
+        );
+    } catch {
       // fallback
-    } finally {
-      db.close();
     }
   }
 
@@ -296,19 +288,18 @@ export class MemoryEngine {
    * Store prompt/response cache entries.
    */
   storeCache(promptHash: string, response: string, cost: number) {
-    const db = this.getDb();
     try {
-      db.prepare(
-        `
+      this.db
+        .prepare(
+          `
         INSERT INTO cache_entries (id, query_embedding, response, model, cost)
         VALUES (?, ?, ?, ?, ?)
         ON CONFLICT(id) DO UPDATE SET cost = cost + excluded.cost
       `,
-      ).run(promptHash, Buffer.alloc(0), response, 'unknown', cost);
-    } catch (err) {
+        )
+        .run(promptHash, Buffer.alloc(0), response, 'unknown', cost);
+    } catch {
       // ignore
-    } finally {
-      db.close();
     }
   }
 
@@ -316,14 +307,11 @@ export class MemoryEngine {
    * Get cache entries by prompt hash.
    */
   getCache(promptHash: string): string | null {
-    const db = this.getDb();
     try {
-      const row = db.prepare('SELECT response FROM cache_entries WHERE id = ?').get(promptHash) as any;
+      const row = this.db.prepare('SELECT response FROM cache_entries WHERE id = ?').get(promptHash) as any;
       return row?.response || null;
-    } catch (err) {
+    } catch {
       return null;
-    } finally {
-      db.close();
     }
   }
 
@@ -331,18 +319,13 @@ export class MemoryEngine {
    * Store lessons learned and project conventions.
    */
   addProjectLesson(conventions: string, lessons: string) {
-    const db = this.getDb();
-    try {
-      if (conventions) {
-        db.prepare("INSERT INTO project_memory (category, key, value) VALUES ('convention', 'general', ?)").run(
-          conventions,
-        );
-      }
-      if (lessons) {
-        db.prepare("INSERT INTO project_memory (category, key, value) VALUES ('lesson', 'general', ?)").run(lessons);
-      }
-    } finally {
-      db.close();
+    if (conventions) {
+      this.db
+        .prepare("INSERT INTO project_memory (category, key, value) VALUES ('convention', 'general', ?)")
+        .run(conventions);
+    }
+    if (lessons) {
+      this.db.prepare("INSERT INTO project_memory (category, key, value) VALUES ('lesson', 'general', ?)").run(lessons);
     }
   }
 
@@ -350,97 +333,78 @@ export class MemoryEngine {
    * Query conventions from past projects.
    */
   getConventions(): string[] {
-    const db = this.getDb();
-    try {
-      const rows = db
-        .prepare("SELECT value FROM project_memory WHERE category = 'convention' ORDER BY id DESC LIMIT 5")
-        .all() as any[];
-      return rows.map((r) => r.value).filter(Boolean);
-    } finally {
-      db.close();
-    }
+    const rows = this.db
+      .prepare("SELECT value FROM project_memory WHERE category = 'convention' ORDER BY id DESC LIMIT 5")
+      .all() as any[];
+    return rows.map((r) => r.value).filter(Boolean);
   }
 
   // --- Shared Memory Agent Communication ---
 
   saveTaskPlan(taskId: string, goalId: string, planJson: string) {
-    const db = this.getDb();
-    try {
-      db.prepare(
+    this.db
+      .prepare(
         `
-        INSERT INTO task_plans (task_id, goal_id, plan_json)
-        VALUES (?, ?, ?)
-        ON CONFLICT(task_id) DO UPDATE SET plan_json = excluded.plan_json
-      `,
-      ).run(taskId, goalId, planJson);
-    } finally {
-      db.close();
-    }
+      INSERT INTO task_plans (task_id, goal_id, plan_json)
+      VALUES (?, ?, ?)
+      ON CONFLICT(task_id) DO UPDATE SET plan_json = excluded.plan_json
+    `,
+      )
+      .run(taskId, goalId, planJson);
   }
 
   getTaskPlan(taskId: string): string | null {
-    const db = this.getDb();
     try {
-      const row = db.prepare('SELECT plan_json FROM task_plans WHERE task_id = ?').get(taskId) as any;
+      const row = this.db.prepare('SELECT plan_json FROM task_plans WHERE task_id = ?').get(taskId) as any;
       return row?.plan_json || null;
-    } catch (err) {
+    } catch {
       return null;
-    } finally {
-      db.close();
     }
   }
 
   saveTaskExecution(taskId: string, executionJson: string) {
-    const db = this.getDb();
-    try {
-      db.prepare(
+    this.db
+      .prepare(
         `
-        INSERT INTO task_executions (task_id, execution_json)
-        VALUES (?, ?)
-        ON CONFLICT(task_id) DO UPDATE SET execution_json = excluded.execution_json
-      `,
-      ).run(taskId, executionJson);
-    } finally {
-      db.close();
-    }
+      INSERT INTO task_executions (task_id, execution_json)
+      VALUES (?, ?)
+      ON CONFLICT(task_id) DO UPDATE SET execution_json = excluded.execution_json
+    `,
+      )
+      .run(taskId, executionJson);
   }
 
   getTaskExecution(taskId: string): string | null {
-    const db = this.getDb();
     try {
-      const row = db.prepare('SELECT execution_json FROM task_executions WHERE task_id = ?').get(taskId) as any;
+      const row = this.db.prepare('SELECT execution_json FROM task_executions WHERE task_id = ?').get(taskId) as any;
       return row?.execution_json || null;
-    } catch (err) {
+    } catch {
       return null;
-    } finally {
-      db.close();
     }
   }
 
   saveTaskReview(taskId: string, reviewJson: string) {
-    const db = this.getDb();
-    try {
-      db.prepare(
+    this.db
+      .prepare(
         `
-        INSERT INTO task_reviews (task_id, review_json)
-        VALUES (?, ?)
-        ON CONFLICT(task_id) DO UPDATE SET review_json = excluded.review_json
-      `,
-      ).run(taskId, reviewJson);
-    } finally {
-      db.close();
-    }
+      INSERT INTO task_reviews (task_id, review_json)
+      VALUES (?, ?)
+      ON CONFLICT(task_id) DO UPDATE SET review_json = excluded.review_json
+    `,
+      )
+      .run(taskId, reviewJson);
   }
 
   getTaskReview(taskId: string): string | null {
-    const db = this.getDb();
     try {
-      const row = db.prepare('SELECT review_json FROM task_reviews WHERE task_id = ?').get(taskId) as any;
+      const row = this.db.prepare('SELECT review_json FROM task_reviews WHERE task_id = ?').get(taskId) as any;
       return row?.review_json || null;
-    } catch (err) {
+    } catch {
       return null;
-    } finally {
-      db.close();
     }
+  }
+
+  close() {
+    this.db.close();
   }
 }

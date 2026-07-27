@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach, mock, spyOn } from 'bun:test';
+import { describe, it, expect, beforeEach, afterEach, mock } from 'bun:test';
 mock.module('child_process', () => {
   return {
     execSync: mock((cmd: string) => {
@@ -20,16 +20,24 @@ process.env.VITEST = '1';
 describe('V2 CostEngine', () => {
   const TEST_DB = 'test_v2_cost.db';
 
-  beforeEach(() => {
-    if (fs.existsSync(TEST_DB)) {
-      fs.unlinkSync(TEST_DB);
+  function unlinkDb(dbPath: string) {
+    for (const ext of ['', '-wal', '-shm']) {
+      if (fs.existsSync(dbPath + ext)) {
+        try {
+          fs.unlinkSync(dbPath + ext);
+        } catch {
+          // ignore
+        }
+      }
     }
+  }
+
+  beforeEach(() => {
+    unlinkDb(TEST_DB);
   });
 
   afterEach(() => {
-    if (fs.existsSync(TEST_DB)) {
-      fs.unlinkSync(TEST_DB);
-    }
+    unlinkDb(TEST_DB);
   });
 
   it('correctly tracks costs and detects budget limits', async () => {
@@ -42,16 +50,14 @@ describe('V2 CostEngine', () => {
 
     canSpend = await engine.canSpend('goal-1', 4.0, 5.0);
     expect(canSpend).toBe(false); // 1.5 + 4.0 = 5.5 > 5.0
+    engine.close();
   });
 
   it('triggers budget termination with exit code 77', () => {
     const engine = new CostEngine(TEST_DB);
-    const exitSpy = spyOn(process, 'exit').mockImplementation(() => {
-      throw new Error('exit called');
-    });
 
     expect(() => engine.terminateDueToBudget('Limit exceeded')).toThrow('BUDGET_TERMINATION: Limit exceeded');
-    exitSpy.mockRestore();
+    engine.close();
   });
 });
 

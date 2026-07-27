@@ -9,10 +9,19 @@ import * as crypto from 'node:crypto';
 export class EngineerAgent {
   private client: OpencodeClient;
   private modelRoute: { providerID: string; modelID: string };
+  private memoryEngine: MemoryEngine;
 
-  constructor(client: OpencodeClient, modelRoute?: { providerID: string; modelID: string }) {
+  constructor(
+    client: OpencodeClient,
+    modelRoute?: { providerID: string; modelID: string },
+    memoryEngine?: MemoryEngine | string,
+  ) {
     this.client = client;
     this.modelRoute = modelRoute || { providerID: 'anthropic', modelID: 'claude-5-sonnet' };
+    this.memoryEngine =
+      typeof memoryEngine === 'string'
+        ? new MemoryEngine(memoryEngine)
+        : (memoryEngine ?? new MemoryEngine('loopcode.db'));
   }
 
   /**

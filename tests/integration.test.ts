@@ -41,6 +41,18 @@ describe('LoopCode Integration Flow', () => {
   const OUTPUT_FILE = path.join(REPO_DIR, 'output.txt');
   const VERIFY_SCRIPT = path.join(FIXTURES_DIR, 'verify.cjs');
 
+  function unlinkDb(dbPath: string) {
+    for (const ext of ['', '-wal', '-shm']) {
+      if (fs.existsSync(dbPath + ext)) {
+        try {
+          fs.unlinkSync(dbPath + ext);
+        } catch {
+          // ignore
+        }
+      }
+    }
+  }
+
   beforeEach(() => {
     // Setup test repository fixtures
     if (!fs.existsSync(REPO_DIR)) {
@@ -49,9 +61,7 @@ describe('LoopCode Integration Flow', () => {
     if (fs.existsSync(OUTPUT_FILE)) {
       fs.unlinkSync(OUTPUT_FILE);
     }
-    if (fs.existsSync(TEST_DB)) {
-      fs.unlinkSync(TEST_DB);
-    }
+    unlinkDb(TEST_DB);
 
     // Create a verification script that returns 0 if output.txt exists and contains "SUCCESS"
     const verifyScriptContent = `
@@ -72,8 +82,8 @@ describe('LoopCode Integration Flow', () => {
       if (fs.existsSync(OUTPUT_FILE)) fs.unlinkSync(OUTPUT_FILE);
       if (fs.existsSync(VERIFY_SCRIPT)) fs.unlinkSync(VERIFY_SCRIPT);
       if (fs.existsSync(REPO_DIR)) fs.rmdirSync(REPO_DIR);
-      if (fs.existsSync(TEST_DB)) fs.unlinkSync(TEST_DB);
-    } catch (e) {
+      unlinkDb(TEST_DB);
+    } catch {
       // Ignore cleanup issues
     }
   });

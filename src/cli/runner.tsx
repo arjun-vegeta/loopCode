@@ -1,6 +1,7 @@
 import React from 'react';
 import { render } from 'ink';
 import { App } from './app.js';
+import { createController } from '../app/session-controller-impl.js';
 import { configStore } from '../config/store.js';
 import { logger } from '../app/logger.js';
 import { isHeadless } from '../platform/env.js';
@@ -15,7 +16,6 @@ export interface RunnerOptions {
 
 /**
  * Bootstrap only: build the controller, decide TUI vs headless, render.
- * Compatible with both object options and legacy positional (goal, resumeTaskId, dbPath).
  */
 export async function runCli(
   options?: RunnerOptions | string,
@@ -27,66 +27,31 @@ export async function runCli(
       ? options
       : { goal: options, resumeTaskId: resumeTaskIdArg, dbPath: dbPathArg };
 
-  const { notices } = configStore.load();
+  const { config, notices } = configStore.load();
   for (const notice of notices) logger.notice('warn', notice);
 
+  const controller = await createController({ dbPath: opts.dbPath || 'loopcode.db', config });
+
   if (isHeadless()) {
-    return 0;
+    if (opts.goal) {
+      await controller.runGoal(opts.goal);
+    } else if (opts.resumeTaskId) {
+      await controller.resume(opts.resumeTaskId);
+    }
+    await controller.shutdown();
+    return controller.exitCode();
   }
 
-  // Stub controller for bootstrap UI rendering until full controller integration in Phase 4
-  const dummyController: any = {
-    config: configStore.get(),
-    bus: { subscribe: () => () => {}, history: () => [] },
-    snapshot: () => ({
-      phase: 'idle',
-      projectName: 'loopcode',
-      gitBranch: 'main',
-      permissionMode: 'acceptEdits',
-      goalSpentUsd: 0,
-      goalLimitUsd: 10,
-      monthSpentUsd: 0,
-      monthLimitUsd: 100,
-      quota: null,
-      tasks: [],
-      verifications: [],
-      sessions: [],
-      proxy: { running: false, healthy: false },
-    }),
-    runGoal: async () => {},
-    resume: async () => {},
-    interrupt: async () => {},
-    shutdown: async () => {},
-    runCommand: async () => {},
-    refreshCatalog: async () => ({ providers: [], defaults: {}, connected: [] }),
-    catalog: () => null,
-    findProvider: () => undefined,
-    setApiKey: async () => ({ ok: true }),
-    startOAuth: async () => ({}) as any,
-    awaitOAuth: async () => ({ ok: true }),
-    completeOAuth: async () => ({ ok: true }),
-    startWebOnboarding: async () => ({ url: '', stop: () => {} }),
-    setModelForRole: () => {},
-    enableProxy: async () => ({ ok: true }),
-    disableProxy: async () => {},
-    proxyStatus: async () => ({ running: false, healthy: false }),
-    acceptProxyRisk: () => {},
-    trustDirectory: () => {},
-    isDirectoryTrusted: () => true,
-    renameSession: () => {},
-    deleteSession: () => {},
-    cyclePermissionMode: () => {},
-    resolveApproval: () => {},
-    resolveEscalation: () => {},
-  };
+  const needsOnboarding =
+    Boolean(opts.forceLogin) || !controller.isDirectoryTrusted() || !(await controller.hasUsableProvider());
 
   logger.setTuiActive(true);
-  logger.attach(dummyController.bus);
+  logger.attach(controller.bus);
 
   const instance = render(
     <App
-      controller={dummyController}
-      needsOnboarding={Boolean(opts.forceLogin)}
+      controller={controller}
+      needsOnboarding={needsOnboarding}
       initialGoal={opts.goal}
       resumeTaskId={opts.resumeTaskId}
     />,
@@ -94,5 +59,6 @@ export async function runCli(
   );
 
   await instance.waitUntilExit();
-  return 0;
+  await controller.shutdown();
+  return controller.exitCode();
 }

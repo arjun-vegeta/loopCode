@@ -8,16 +8,28 @@ export interface BudgetLimit {
   maxTokens: number;
 }
 
+export class BudgetExceededError extends Error {
+  readonly exitCode = 77;
+  constructor(message: string) {
+    super(`BUDGET_TERMINATION: ${message}`);
+    this.name = 'BudgetExceededError';
+  }
+}
+
 export class CostEngine {
   private dbPath: string;
-  private goalBudget: number = 10.0;
-  private taskBudget: number = 2.0;
-  private monthlyBudget: number = 100.0;
+  private db: Database;
+  private goalBudget = 10.0;
+  private taskBudget = 2.0;
+  private monthlyBudget = 100.0;
   /** Providers whose usage is quota-based rather than metered. */
   private quotaProviders = new Set<string>();
 
   constructor(dbPath: string = 'loopcode.db') {
     this.dbPath = dbPath;
+    this.db = new Database(dbPath);
+    this.db.exec('PRAGMA journal_mode = WAL;');
+    this.db.exec('PRAGMA foreign_keys = ON;');
     this.loadConfig();
     this.initializeTable();
   }
@@ -41,15 +53,14 @@ export class CostEngine {
           this.taskBudget = config.budgets.task || this.taskBudget;
         }
       }
-    } catch (e) {
-      console.error(`[CostEngine] Failed to load config.toml:`, e);
+    } catch {
+      // Ignore config load failures
     }
   }
 
   private initializeTable() {
-    const db = this.getDb();
-    try {
-      db.prepare(
+    this.db
+      .prepare(
         `
         CREATE TABLE IF NOT EXISTS cost_log (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -61,76 +72,54 @@ export class CostEngine {
           created_at DATETIME DEFAULT CURRENT_TIMESTAMP
         )
       `,
-      ).run();
-    } finally {
-      db.close();
-    }
-  }
-
-  private getDb(): any {
-    return new Database(this.dbPath);
+      )
+      .run();
   }
 
   async getGoalSpent(goalId: string): Promise<number> {
-    const db = this.getDb();
-    try {
-      const row = db.prepare('SELECT SUM(cost_spent) as spent FROM cost_log WHERE goal_id = ?').get(goalId) as any;
-      return row?.spent || 0.0;
-    } finally {
-      db.close();
-    }
+    const row = this.db.prepare('SELECT SUM(cost_spent) as spent FROM cost_log WHERE goal_id = ?').get(goalId) as any;
+    return row?.spent || 0.0;
   }
 
   async canSpend(goalId: string, estimatedCost: number, goalLimit: number): Promise<boolean> {
     const spent = await this.getGoalSpent(goalId);
     if (spent + estimatedCost > goalLimit) {
-      console.error(`[CostEngine] Budget violation! Spent: ${spent}, Estimated: ${estimatedCost}, Limit: ${goalLimit}`);
       return false;
     }
     return true;
   }
 
   async recordSpend(goalId: string, taskId: string, model: string, tokens: number, cost: number): Promise<void> {
-    const db = this.getDb();
-    try {
-      db.prepare(
+    this.db
+      .prepare(
         `
         INSERT INTO cost_log (goal_id, task_id, model, tokens_spent, cost_spent)
         VALUES (?, ?, ?, ?, ?)
       `,
-      ).run(goalId, taskId, model, tokens, cost);
-    } finally {
-      db.close();
-    }
+      )
+      .run(goalId, taskId, model, tokens, cost);
   }
 
   async getMonthlySpent(): Promise<number> {
-    const db = this.getDb();
-    try {
-      const row = db
-        .prepare("SELECT SUM(cost_spent) as spent FROM cost_log WHERE created_at >= date('now', '-30 days')")
-        .get() as any;
-      return row?.spent || 0.0;
-    } finally {
-      db.close();
-    }
+    const row = this.db
+      .prepare("SELECT SUM(cost_spent) as spent FROM cost_log WHERE created_at >= datetime('now', '-30 days')")
+      .get() as any;
+    return row?.spent || 0.0;
   }
 
   async getTaskSpent(taskId: string): Promise<number> {
-    const db = this.getDb();
-    try {
-      const row = db.prepare('SELECT SUM(cost_spent) as spent FROM cost_log WHERE task_id = ?').get(taskId) as any;
-      return row?.spent || 0.0;
-    } finally {
-      db.close();
-    }
+    const row = this.db.prepare('SELECT SUM(cost_spent) as spent FROM cost_log WHERE task_id = ?').get(taskId) as any;
+    return row?.spent || 0.0;
   }
 
   /**
-   * Throw an error on budget termination instead of hard crash.
+   * Throw BudgetExceededError on budget termination.
    */
   terminateDueToBudget(message: string): never {
-    console.error(`[CostEngine] BUDGET TERMINATION: ${message}`);
-    throw new Error(`BUDGET_TERMINATION: ${message}`);
+    throw new BudgetExceededError(message);
+  }
+
+  close(): void {
+    this.db.close();
   }
 }

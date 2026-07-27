@@ -56,7 +56,7 @@ function loadTrustedDirs(): TrustedDir[] {
   }
 }
 
-function saveTrustedDirs(dirs: TrustedDir[]) {
+export function saveTrustedDirs(dirs: TrustedDir[]) {
   try {
     if (!existsSync(LOOPCODE_DIR)) {
       mkdirSync(LOOPCODE_DIR, { recursive: true });

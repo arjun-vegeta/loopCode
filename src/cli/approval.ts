@@ -1,5 +1,3 @@
-import { spawnSync } from 'node:child_process';
-import { renderDiff } from './diff.js';
 import { getPermissionMode } from './state.js';
 
 export function isCommandDestructive(command: string): boolean {
@@ -34,7 +32,7 @@ export async function approveShellCommand(command: string, isDestructive = false
   return 'no';
 }
 
-export async function approveFileEdit(filePath: string, diff: string): Promise<boolean> {
+export async function approveFileEdit(_filePath: string, _diff: string): Promise<boolean> {
   if (getPermissionMode() === 'auto' || getPermissionMode() === 'acceptEdits') {
     return true;
   }

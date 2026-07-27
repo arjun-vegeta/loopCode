@@ -1,4 +1,5 @@
 import type { TaskNode, Budget } from '../ir/task.js';
+import type { Catalog } from '../auth/provider-catalog.js';
 import { Database } from 'bun:sqlite';
 
 export interface ModelSelection {
@@ -12,6 +13,7 @@ export interface ModelSelection {
 
 export class DynamicRouter {
   private db?: Database;
+  private catalog: Catalog | null = null;
 
   constructor(dbPath?: string) {
     if (dbPath) {
@@ -21,6 +23,10 @@ export class DynamicRouter {
         console.warn(`[DynamicRouter] Database connection failed: ${err}`);
       }
     }
+  }
+
+  setCatalog(catalog: Catalog): void {
+    this.catalog = catalog;
   }
 
   /**
@@ -46,6 +52,37 @@ export class DynamicRouter {
    * Tier 1: Initial routing based on task type.
    */
   private routeByTaskType(task: TaskNode, cacheWarmth: number): ModelSelection {
+    // If catalog is available, prefer models present in the user's catalog
+    if (this.catalog && this.catalog.providers.length > 0) {
+      const allModels = this.catalog.providers.flatMap((p) => p.models.map((m) => ({ providerID: p.id, model: m })));
+      if (allModels.length > 0) {
+        if (task.type === 'plan') {
+          const reasoning = allModels.find((m) => m.model.supportsReasoning);
+          if (reasoning) {
+            return {
+              modelID: reasoning.model.id,
+              providerID: reasoning.providerID,
+              estimatedCost: 1.0,
+              estimatedLatency: 10000,
+              cacheWarmth,
+            };
+          }
+        }
+        const cheapest = [...allModels].sort(
+          (a, b) => (a.model.inputCostPerMillion ?? 0) - (b.model.inputCostPerMillion ?? 0),
+        )[0];
+        if (cheapest) {
+          return {
+            modelID: cheapest.model.id,
+            providerID: cheapest.providerID,
+            estimatedCost: 0.1,
+            estimatedLatency: 3000,
+            cacheWarmth,
+          };
+        }
+      }
+    }
+
     switch (task.type) {
       case 'plan':
         return {
@@ -163,7 +200,7 @@ export class DynamicRouter {
     if (selection.cacheWarmth > 0.7 && selection.providerID === 'anthropic') {
       return {
         ...selection,
-        estimatedCost: selection.estimatedCost * 0.2, // Applies caching factor discount
+        estimatedCost: selection.estimatedCost * 0.2,
       };
     }
     return selection;
