@@ -1,5 +1,6 @@
 import { Database } from 'bun:sqlite';
 import { SemanticMemory } from './semantic.js';
+import { redact } from '../app/redact.js';
 
 export interface PerformanceLog {
   model: string;
@@ -371,7 +372,7 @@ export class MemoryEngine {
       ON CONFLICT(task_id) DO UPDATE SET execution_json = excluded.execution_json
     `,
       )
-      .run(taskId, executionJson);
+      .run(taskId, redact(executionJson));
   }
 
   getTaskExecution(taskId: string): string | null {
@@ -392,7 +393,7 @@ export class MemoryEngine {
       ON CONFLICT(task_id) DO UPDATE SET review_json = excluded.review_json
     `,
       )
-      .run(taskId, reviewJson);
+      .run(taskId, redact(reviewJson));
   }
 
   getTaskReview(taskId: string): string | null {

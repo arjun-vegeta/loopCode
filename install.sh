@@ -12,7 +12,7 @@ if ! command -v bun >/dev/null 2>&1; then
 fi
 
 echo "Fetching latest release source of LoopCode..."
-TARBALL_URL="https://github.com/$REPO/archive/refs/tags/v1.0.0.tar.gz"
+TARBALL_URL="https://github.com/$REPO/archive/refs/tags/v2.0.0.tar.gz"
 
 echo "Downloading LoopCode from: $TARBALL_URL"
 mkdir -p "$INSTALL_DIR"

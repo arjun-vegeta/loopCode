@@ -1,9 +1,9 @@
-# State Machine, Sessions & Safety Policies
+# State Machine, Event Bus & Safety Policies
 
-The core execution of LoopCode is managed by a state machine that handles planning, execution, verification, and failure feedback loop cascades, with real-time UI logging and session management.
+The core execution of LoopCode is managed by an event-driven state machine (`Orchestrator`) emitting typed events (`phase`, `plan`, `task-state`, `verification`, `cost`, `approval-request`, `escalation`, `notice`) over an `EventBus`.
 
 ```
-[PLANNING] ── plan generated ──> [EXECUTING] ── retry < MAX_RETRIES ──> [EXECUTING]
+[PLANNING] ── plan generated ──► [EXECUTING] ── retry < MAX_RETRIES ──► [EXECUTING]
    ▲                                 │                                    ▲
    │                                 ▼                                    │
 re-plan (retries exhausted) ◄── [VERIFYING] ────────── failed ────────────┘
@@ -14,66 +14,31 @@ re-plan (retries exhausted) ◄── [VERIFYING] ──────────
                                   [DONE]
 ```
 
-## State Transitions & Actions
+## State Transitions & Event Bus Integration
 
-### 1. PLANNING
-
-- **Action**: Classifier analyzes goal complexity. Bypasses to `single_agent` path if simple. Otherwise, `PlannerAgent` creates task DAG.
-- **Transition Target**: `executing`.
-
-### 2. EXECUTING
-
-- **Action**: `DynamicRouter` resolves the optimal model. Pre-call budget is checked via `CostEngine.canSpend()`. Spawns sandboxed `GitWorktreeScheduler` execution.
-- **Transition Target**: `verifying`.
-
-### 3. VERIFYING
-
-- **Action**: Executes local checks (compilation, unit testing, linting).
-- **Decisions**:
-  - _Pass_: Proceed to next task or transition to `done`.
-  - _Fail (Retries Left)_: Increment retry attempt and transition back to `executing` with failure evidence injected.
-  - _Fail (Retries Exhausted)_: Transition back to `planning` to re-plan the remaining steps.
+- **`updateState(taskId, state)`**: Emits `phase` event with phase detail and updates SQLite task record.
+- **`handlePlanning`**: Emits `plan` event containing DAG task batches and replan flags.
+- **`handleExecuting`**: Emits `task-state` (`running`, `passed`, `failed`) and `cost` events per task.
+- **`handleVerifying`**: Emits `verification` events on every layer evaluation (`compile`, `lint`, `test`, `security`, `review`).
 
 ---
 
-## Safety Engines & Policies
+## Event-Driven Escalation & Safety Policies
 
-### 1. Loop Oscillation Detection
+### 1. Loop Oscillation Detection & Escalation
 
-Before executing a state transition, the `LoopDetector` constructs a SHA-256 signature hash of the current orchestrator state:
+- `LoopDetector` constructs state signature hashes (`phase`, `taskIndex`, `filesChanged`, `retryAttempt`).
+- If oscillation occurs, `Orchestrator` emits an `escalation` event with options (`continue`, `replan`, `abort`) and awaits a non-blocking promise (`resolveEscalation`).
+- In headless CI environments (`--headless`), oscillation auto-aborts to prevent runaway execution.
 
-```typescript
-const sig = {
-  phase: taskRecord.state,
-  taskIndex: taskRecord.current_task_index,
-  filesChanged: [...files],
-  retryAttempt: attempts,
-};
-```
+### 2. Cost & Budget Limits
 
-If an identical state signature is encountered twice (indicating no progress is being made), the execution is paused. LoopCode will present an interactive terminal prompt asking the user for manual guidance. If provided, the guidance is appended to the replan request; otherwise, the execution aborts to prevent runaway LLM costs.
+- `CostEngine` validates spend against `maxMonthlyCostUsd`, `maxGoalCostUsd`, and `maxTaskCostUsd`.
+- Breaches throw `BudgetExceededError` (exit code `77`, message prefix `BUDGET_TERMINATION:`).
+- Workspace rollback (`rollbackWorkspace`) honors `allowDestructiveRollback`: defaults to `false` (warning notice) and requires confirmation when enabled.
 
-### 2. Budget Enforcement
+### 3. Trust Gate & Dangerous Path Restrictions
 
-Before spawning any model execution, the `CostEngine` validates estimated costs against limits in `config.toml`. If a breach is detected:
-
-1. The `GitWorktreeScheduler` runs `git reset --hard` to rollback all uncommitted changes.
-2. It terminates the CLI session with a custom **exit code 77**.
-
-```typescript
-process.exit(77);
-```
-
-### 3. First-Run Trust Verification & Dangerous Paths
-
-To protect the host operating system from catastrophic commands (e.g. `rm -rf /`):
-
-1. **Trust Verification**: Spawns a select prompt on the first run in any directory, caching approved paths in `~/.loopcode/trusted_dirs.json`.
-2. **Dangerous Directory block**: Explicitly blocks execution if the current directory is a system root path (e.g. `/`, `/usr`, `/System`) or the parent home directory (`~/` directly).
-
-### 4. SQLite Persistence & Session Management
-
-Every transition and session is saved to `loopcode.db`.
-
-- **Session Picking**: Use `Ctrl+S` or `/resume <session-id>` to switch to, pause, rename, or delete past session tasks.
-- **Storage Indexes**: Migration indexes `idx_sessions_status`, `idx_sessions_name`, and `idx_sessions_activity` prevent latency bottlenecks on databases with thousands of logs.
+- **Trust Verification**: Requires confirmation for new directories; saves trusted paths to `~/.loopcode/trusted_dirs.json`.
+- **Warning Locations**: `~/Desktop`, `~/Documents`, and `~/Downloads` trigger warning notices.
+- **Refused Locations**: System root directories (`/`, `/usr`, `/System`) and user home root (`~/`) are strictly refused.
