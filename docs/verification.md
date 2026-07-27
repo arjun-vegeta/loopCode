@@ -1,64 +1,55 @@
 # Verification Engine & Interactive Approvals
 
-LoopCode enforces code correctness and prevents regressions by running sequential verification checks locally and providing manual interactive override triggers.
+LoopCode enforces code correctness by running sequential verification checks locally and providing interactive approval controls.
 
 ## 5-Layer Verification Flow
 
-The verifier executes steps defined in each task's contract sequentially. If a critical layer (compilation or tests) fails, it aborts fast and feeds the error details back to the agent.
+The verifier executes steps defined in each task's contract sequentially. If a critical layer fails, execution halts and failure evidence is fed back to the Planner Agent for DAG self-correction.
 
 ### Layer 1: Compilation
 
 - **Purpose**: Validates build integrity, syntax, and TypeScript types.
-- **Execution**: Spawns local compilers (`tsc`, `npm run build`).
-- **Outcome**: Must return code `0` before any subsequent layers are evaluated.
+- **Execution**: Spawns resolved build commands (`resolveProjectCommands`) without shell interpolation.
+- **Outcome**: Returns `passed`, `failed`, or `skipped` (if no build script exists).
 
 ### Layer 2: Lint & Style
 
 - **Purpose**: Style guide compliance and format standards.
 - **Execution**: Runs static analysis tooling (`eslint`, `prettier --check`).
-- **Outcome**: Logs formatting and styling warnings or errors.
+- **Outcome**: Reports `passed`, `failed`, or `skipped`.
 
 ### Layer 3: Unit Tests
 
-- **Purpose**: Verifies functional correctness of new logic.
-- **Execution**: Spawns test runners (`bun test`, `jest`, `npm run test`).
-- **Outcome**: Captures test outputs and parses total/failed counts using regular expressions. If missing, it gracefully skips.
+- **Purpose**: Verifies functional correctness of logic.
+- **Execution**: Spawns detected test runners (`bun test`, `jest`, `npm run test`).
+- **Outcome**: Captures test outputs and parses pass/fail counts. Reports `skipped` when test scripts are absent or in test environments.
 
 ### Layer 4: Security Scan
 
-- **Purpose**: Detects insecure code, vulnerabilities, or dangerous operations before committing.
-- **Execution**: Automatically runs `semgrep` or `trivy` if installed. Falls back to an internal regex parser matching dangerous patterns (e.g., `eval()`, `exec()`).
-- **Outcome**: Immediately fails the verification if severe security vulnerabilities are found.
+- **Purpose**: Detects insecure code patterns before committing.
+- **Execution**: Runs `semgrep` or `trivy` if available, falling back to regex scanners.
+- **Outcome**: Reports `passed`, `failed`, or `skipped`.
 
 ### Layer 5: Independent LLM Review
 
 - **Purpose**: Performs high-level architectural and logical review.
-- **Execution**: A dedicated `ReviewerAgent` analyzes the Git diff of the executed task.
-- **Outcome**: Assesses logic against the goal, looks for edge cases, and provides a final Pass/Fail grade.
+- **Execution**: A dedicated `ReviewerAgent` analyzes the Git diff.
+- **Outcome**: Assesses logic against goals, extracts conventions/lessons into project memory.
 
 ---
 
-## Interactive Approvals & Editor Integrations
+## Package Manager Command Detection (`src/platform/package-manager.ts`)
 
-In addition to static verification layers, LoopCode provides human-in-the-loop approvals before operations are executed:
+LoopCode detects project package managers (`bun`, `pnpm`, `yarn`, `npm`) based on lockfiles (`bun.lock`, `pnpm-lock.yaml`, `yarn.lock`, `package-lock.json`) or `package.json` declaration:
 
-### Shell Command Approvals
-
-When running in `plan` or `acceptEdits` mode, shell commands require approval:
-
-- **Destructive Commands Rule**: Commands containing destructive keys (e.g., `rm `, `rmdir`, `mkfs`, `dd `, `git push --force`, `git reset --hard`, `git clean -fd`) **ALWAYS** require confirmation, bypassing `auto` mode settings.
-- **Acceptance Choices**: Options include `Yes, run this time`, `Yes, always allow this command in this session`, and `No, skip`.
-
-### File Edit Preview & $EDITOR Integration
-
-In `plan` mode, proposed code edits display a colorized git diff. Users can choose to:
-
-1. **Accept the edit**
-2. **Reject the edit**
-3. **[E] Edit in $EDITOR**: Launches the terminal editor of choice (e.g., `nano`, `vim`, `emacs` configured via `$EDITOR`) directly on the target file, letting the developer manually tweak changes before making a final acceptance decision.
+- `resolveProjectCommands(cwd)` returns concrete argv arrays (e.g. `['bun', 'run', 'test']`).
+- Eliminates shell interpolation vulnerabilities and eliminates hardcoded `npm` calls.
 
 ---
 
-## IDE Terminal Screen-glitch fixes
+## Interactive Approvals & Permission Modes
 
-Under the `/terminal-setup` command, LoopCode writes configuration file overrides to the target editor (VS Code, Cursor). This routine sets `"terminal.integrated.gpuAcceleration": "off"`. This turns off GPU acceleration in the integrated terminal emulator, eliminating screen rendering artifacts or character overlaps common to complex Ink/react terminal interfaces.
+- **`auto`**: Auto-approves non-destructive commands; destructive commands (`rm`, `git reset --hard`, `git push --force`) require explicit approval.
+- **`acceptEdits`**: Auto-approves file edits; shell commands require approval.
+- **`plan`**: Requires explicit human approval for both file edits and shell commands.
+- **Headless Mode (`--headless`)**: Auto-approves non-destructive operations and auto-declines destructive operations, marking the task failed.

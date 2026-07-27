@@ -1,29 +1,27 @@
 # LoopCode Architecture Overview
 
-LoopCode is a local-first autonomous software engineering orchestrator built on top of OpenCode. It does not replace OpenCode; rather, it drives OpenCode sessions by acting as the planning, state orchestration, and verification layer.
+LoopCode is a local-first autonomous software engineering orchestrator built on top of OpenCode. It drives OpenCode sessions by acting as the event-driven planning, state orchestration, knowledge, and verification layer.
 
 ## 3-Layer Design
 
-LoopCode runs in a 3-layer structure relative to your local computer and LLMs:
-
 ```
 ┌──────────────────────────────────────────────┐
-│  LAYER 3: LOOPCODE (TypeScript CLI/TUI)   │
-│  ┌─────────┐ ┌──────────┐ ┌─────────┐        │
-│  │ State   │ │Classifier│ │ Verify  │        │
-│  │ Machine │ │ Engine   │ │ Engine  │        │
-│  └─────────┘ └──────────┘ └─────────┘        │
-│  ┌─────────┐ ┌──────────┐ ┌─────────┐        │
-│  │ SQLite  │ │ Dynamic  │ │ Cost &  │        │
-│  │ Store   │ │ Router   │ │ Budget  │        │
-│  └─────────┘ └──────────┘ └─────────┘        │
-│  ┌─────────┐ ┌──────────┐ ┌─────────┐        │
-│  │ Context │ │ Worktree │ │ Loop    │        │
-│  │ Compres.│ │ Sched.   │ │ Detector│        │
-│  └─────────┘ └──────────┘ └─────────┘        │
-│  ┌────────────────────────────────────────┐  │
-│  │   Visual Dashboard TUI (Ink v6 + TUI)  │  │
-│  └────────────────────────────────────────┘  │
+│  LAYER 3: LOOPCODE (TypeScript TUI & Engine) │
+│  ┌──────────┐ ┌──────────┐ ┌─────────┐       │
+│  │ Controller│ │EventBus  │ │ Verify  │       │
+│  │ Engine   │ │ Pub/Sub  │ │ Engine  │       │
+│  └──────────┘ └──────────┘ └─────────┘       │
+│  ┌──────────┐ ┌──────────┐ ┌─────────┐       │
+│  │ Embedded │ │ Dynamic  │ │ Cost &  │       │
+│  │ SQLite   │ │ Router   │ │ Budget  │       │
+│  └──────────┘ └──────────┘ └─────────┘       │
+│  ┌──────────┐ ┌──────────┐ ┌─────────┐       │
+│  │ Context  │ │ Worktree │ │ Loop    │       │
+│  │ Engine   │ │ Sched.   │ │ Detector│       │
+│  └──────────┘ └──────────┘ └─────────┘       │
+│  ┌────────────────────────────────────────┐ │
+│  │  Inline Transcript-First TUI (Ink)     │ │
+│  └────────────────────────────────────────┘ │
 └──────────────────────────────────────────────┘
                       │
                       │ @opencode-ai/sdk
@@ -47,26 +45,30 @@ LoopCode runs in a 3-layer structure relative to your local computer and LLMs:
 └─────────────────────────────────────────────┘
 ```
 
-- **Layer 1 (User Environment)**: The local file system, Git repository, and the LLM API keys provided by the user.
-- **Layer 2 (OpenCode Runtime)**: Manages model integrations, runs specific tools (file editing, terminal commands, web search), and exposes an API surface.
-- **Layer 3 (LoopCode)**: Decomposes natural language goals, coordinates execution task-by-task, runs local code checks (compile/test/lint), renders a visual terminal user interface, and tracks state with advanced safety, trust, and cost bounds.
-
 ## Module Boundaries
 
-The project files are structured as follows:
-
-- **`src/index.ts`**: CLI Entry point. Handled via `commander`. Resolves configurations, starts the trust verification prompt, and triggers the Ink runner.
-- **`src/opencode.ts`**: Wrapper for `@opencode-ai/sdk`. Manages ephemeral server spawning, checks, execution timeouts, and session cancellations.
-- **`src/orchestrator.ts`**: Core state machine. Directs transitions (planning, executing, verifying, done, failed) and broadcasts updates to UI listeners.
-- **`src/classifier.ts`**: Fast regex and heuristic analyzer dividing simple tasks (Single-Agent path) from complex ones (Full-Loop path).
-- **`src/router/dynamic.ts`**: Dynamic model routing using latency, input/output complexity, and budget limits.
-- **`src/router/portfolio.ts`**: Portfolio constants for 2026 models (Claude Fable, Gemini 3.5, Opus 4.8).
-- **`src/cost/engine.ts`**: Enforces spend bounds from `config.toml`. Rolling back git history and terminating with **exit code 77** on breach.
-- **`src/safety/loop.ts`**: State signature-based infinite loop and oscillation detector.
-- **`src/context/engine.ts`**: Whitespace/comment code compressor, goal-based relevance ranking, and tokenizer-aware truncation.
-- **`src/scheduler/worktree.ts`**: Git worktree manager for parallel batch sandboxing, topological scheduler with `writeAllowlist`, and intelligent LLM-based merge conflict resolution.
-- **`src/memory.ts`**: SQLite backend handling log stores, session history tables, indexes, and queries.
-- **`src/agents/`**: Planner, Researcher, Engineer, Reviewer, and Verifier roles that communicate purely through the shared SQLite memory tables.
-- **`src/knowledge/`**: Tree-sitter symbol extraction, incremental indexing based on `git status`, and a JSON-RPC LSP client (tsserver).
-- **`src/verifier.ts`**: Runs commands locally to verify tasks (Layers 1, 2, 3, and 4 [security scanners]).
-- **`src/cli/`**: Contains TUI rendering shells, layout components (dashboard, multiline input, picker), keybinding setup, system editor launches, and permissions state.
+- **`src/app/`**: Event-driven application architecture.
+  - `session-controller-impl.ts`: Main controller contract managing OpenCode client, auth service, proxy, orchestrator, and event subscription snapshot.
+  - `events.ts`: Strongly typed `EventBus` pub/sub with central secret redaction (`scrub`).
+  - `logger.ts`: Rotating file logger (`~/.loopcode/logs/loopcode.log`).
+  - `redact.ts`: Redaction rules masking API keys, JWTs, and credential assignments.
+- **`src/auth/`**: Provider authentication and catalog management.
+  - `provider-catalog.ts`: Provider discovery, model capabilities, and connection status.
+  - `auth-service.ts`: API key validation and OAuth authorization.
+  - `oauth-listener.ts`: Loopback server (`127.0.0.1`) capturing OAuth code redirects safely.
+  - `web-onboard.ts`: Token-gated loopback onboarding page enforcing CSP headers.
+- **`src/proxy/`**: Local proxy integration for Antigravity models.
+  - `antigravity.ts`: Daemon process management (`start`/`stop`/`health`).
+  - `consent.ts`: Opt-in risk acceptance tracking.
+  - `registration.ts`: Registration of local proxy endpoint with OpenCode configuration.
+- **`src/config/`**: Canonical Zod configuration schema, store, and migration.
+  - `schema.ts`: Schema definition for `[model]`, `[budget]`, `[proxy]`, `[ui]`, `[safety]`.
+  - `store.ts`: Atomic persistence to `~/.loopcode/config.toml` (mode `0600`).
+- **`src/db/`**: Embedded database DDL.
+  - `schema.ts`: Embedded `SCHEMA_SQL` string source of truth.
+- **`src/platform/`**: Cross-platform path resolution, environment detection, and package manager resolution.
+- **`src/orchestrator.ts`**: Core state machine emitting events (`phase`, `plan`, `task-state`, `verification`, `cost`, `approval-request`, `escalation`, `notice`).
+- **`src/cost/engine.ts`**: Cost tracking throwing `BudgetExceededError` (exit code `77`).
+- **`src/scheduler/worktree.ts`**: Parallel batch execution in isolated Git worktrees using safe spawn arguments and path containment checks.
+- **`src/agents/`**: Planner, Researcher, Engineer, Reviewer, and Verifier agents operating against shared memory.
+- **`src/cli/`**: Ink TUI implementation: inline transcript, LiveStatus, multiline Composer, CommandPalette, and modal overlays.

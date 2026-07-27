@@ -1,51 +1,59 @@
 # Configuration, Auth, CLI & Packaging Reference
 
-LoopCode exposes a simple command-line interface, configuration model, and standalone executable bundle.
+LoopCode exposes a simple command-line interface, canonical configuration model, and standalone executable bundle.
 
 ## Configuration File (`~/.loopcode/config.toml`)
 
-You can override default model settings by creating a configuration file at `~/.loopcode/config.toml`. It is parsed at startup using `smol-toml`:
+Override default settings by creating a configuration file at `~/.loopcode/config.toml`. It is parsed using `smol-toml` and validated via Zod:
 
 ```toml
 [model]
-# Default fallback model for tasks
-default = "anthropic/claude-5-sonnet"
+default      = "anthropic/claude-sonnet-4-6"
+planning     = "anthropic/claude-opus-4-6"
+execution    = "anthropic/claude-sonnet-4-6"
+verification = "anthropic/claude-sonnet-4-6"
 
-# Model used to decompose goals in PLANNING state
-planning = "anthropic/claude-4.8-opus"
+[budget]
+maxMonthlyCostUsd = 100.0
+maxGoalCostUsd    = 10.0
+maxTaskCostUsd    = 2.0
 
-# Model used during task executions and verifications
-verification = "anthropic/claude-5-sonnet"
+[proxy]
+enabled        = false
+kind           = "antigravity"
+port           = 8080
+autoStart      = true
+providerId     = "antigravity"
 
-[budgets]
-# Hard limits on USD spend
-monthly = 100.0
-goal = 10.0
-task = 2.0
+[ui]
+theme = "auto"
+ascii = false
+
+[safety]
+permissionMode           = "acceptEdits"
+allowDestructiveRollback = false
+maxParallelAgents        = 5
 ```
 
 ---
 
-## Provider & Key Management (BYOK)
+## In-TUI Authentication & Provider Onboarding
 
-LoopCode strictly adheres to the "Bring Your Own Key" (BYOK) principle and never proxies LLM requests through external servers.
+LoopCode supports complete provider authentication directly inside the TUI without requiring external commands:
 
-- **Autodetect**: By default, LoopCode picks up your keys and setups from `~/.opencode/opencode.json` automatically when starting.
-- **Manual CLI Auth**: If you prefer, LoopCode will offer a CLI mechanism that explicitly sets provider keys on OpenCode's client using `client.auth.set()` under the hood:
-  ```typescript
-  await client.auth.set({
-    path: { id: 'anthropic' },
-    body: { type: 'api', key: 'your-api-key' },
-  });
-  ```
+1. **API Key Entry**: Direct in-TUI input with masked display (`maskKey`). API keys are set via `client.auth.set()` and cleared from memory immediately upon submit.
+2. **OAuth Flow**:
+   - `auto`: Browser authorization with automated loopback code capture (`startLoopbackListener`).
+   - `code`: Copy-paste auth code input for headless or manual setups.
+3. **Web Onboarding Loopback Page**:
+   - Spawns a token-gated loopback page (`startWebOnboarding`) on `http://127.0.0.1:<port>/<token>/`.
+   - Single-use, 10-minute TTL, enforcing strict Content Security Policy (`default-src 'none'`).
 
 ---
 
 ## CLI Reference
 
 Run LoopCode using Bun natively or compiled packages:
-
-### Commands
 
 ```bash
 bun run src/index.ts [goal] [options]
@@ -54,23 +62,28 @@ bun run src/index.ts [goal] [options]
 ### Options
 
 - `[goal]`: The natural language instruction you want LoopCode to complete.
-- `-r, --resume <taskId>`: Attempts to reload and resume an in-progress task matching the given SQLite UUID.
-- `-d, --db <path>`: Specifies a custom path to the SQLite log database (defaults to `loopcode.db`).
+- `-r, --resume <sessionIdOrTaskId>`: Reloads and resumes an in-progress session or task matching the given SQLite UUID.
+- `-d, --db <path>`: Path to the SQLite log database (default: `loopcode.db`).
+- `--login`: Opens the interactive provider onboarding wizard.
+- `--headless`: Runs in non-interactive CI automation mode.
 
 ### Exit Codes
 
-- `0`: Goal completed successfully (all tasks in the plan passed verification).
-- `1`: Goal failed (fatal error, plan validation fail, or max task retries exceeded).
-- `77`: Budget exceeded (CostEngine limit breached, execution aborted).
+| Code  | Meaning           | Description                                             |
+| :---: | :---------------- | :------------------------------------------------------ |
+|  `0`  | `OK`              | Goal completed successfully (all plan tasks verified).  |
+|  `1`  | `ERROR`           | Fatal error, unhandled exception, or execution failure. |
+| `77`  | `BUDGET_EXCEEDED` | Spend cap breached; execution terminated.               |
+| `130` | `INTERRUPTED`     | Execution interrupted via `Esc` or SIGINT (`Ctrl+C`).   |
 
 ---
 
 ## Standalone Binary Packaging
 
-To generate a self-contained executable `./loopcode` containing the Bun runtime and bundled source files:
+Generate a self-contained executable `./loopcode` containing the Bun runtime:
 
 ```bash
 bun run package
 ```
 
-This transpiles TypeScript files and bundles modules into a single binary executable using Bun (excluding native dependencies like `sqlite-vec` and `onnxruntime-node` which are bundled externally).
+This transpiles TypeScript files and compiles a single binary executable using `bun build --compile`, linking native C/C++ extensions (`sqlite-vec`, `tree-sitter`) externally.
