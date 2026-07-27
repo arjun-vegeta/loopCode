@@ -1,10 +1,15 @@
 {
   "name": "loopcode",
-  "version": "1.1.1",
-  "main": "index.js",
+  "version": "2.0.0",
+  "main": "dist/index.js",
+  "bin": {
+    "loopcode": "dist/index.js"
+  },
   "scripts": {
     "build": "tsc",
+    "typecheck": "tsc -p tsconfig.test.json",
     "test": "bun test",
+    "test:watch": "bun test --watch",
     "lint": "eslint .",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
@@ -15,15 +20,11 @@
   "license": "ISC",
   "description": "",
   "dependencies": {
-    "@clack/prompts": "^1.6.0",
-    "@inkjs/ui": "^2.0.0",
     "@opencode-ai/sdk": "^1.17.13",
-    "@types/react": "^19.2.17",
     "commander": "^15.0.0",
     "fastembed": "^2.1.0",
     "ink": "^7.1.0",
     "react": "^19.2.7",
-    "react-devtools-core": "^7.0.1",
     "smol-toml": "^1.7.0",
     "sqlite-vec": "^0.1.9",
     "tree-sitter": "^0.21.1",
@@ -41,6 +42,7 @@
     "sqlite-vec"
   ],
   "devDependencies": {
+    "@types/react": "^19.2.17",
     "bun-types": "latest",
     "eslint": "^9.39.4",
     "eslint-config-prettier": "^10.1.8",

@@ -166,7 +166,7 @@ describe('V2 GitWorktreeScheduler', () => {
       { from: '2', to: '3', type: 'dependency' as const },
     ];
 
-    const batches = scheduler.topologicalSort(tasks, edges);
+    const batches = scheduler.topologicalSort(tasks as any[], edges as any[]);
     expect(batches.length).toBe(3);
     expect(batches[0][0].id).toBe('1');
     expect(batches[1][0].id).toBe('2');

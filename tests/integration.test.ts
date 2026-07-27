@@ -126,7 +126,7 @@ describe('LoopCode Integration Flow', () => {
     expect(allTasks.length).toBe(1);
     expect(allTasks[0].state).toBe('done'); // Verification succeeded!
 
-    const results = memory.getTaskResults(allTasks[0].id);
+    const results = memory.getTaskResults(allTasks[0].id) as any[];
     expect(results.length).toBe(1);
 
     const verificationReport = JSON.parse(results[0].verification_json);

@@ -1,65 +1,38 @@
 # Goal Classification, Planning & Routing
 
-LoopCode coordinates execution through goal classification, structured plans, and dynamic cascading model routing rules.
+LoopCode coordinates execution through goal classification, structured DAG planning, and catalog-driven dynamic model routing.
 
 ## Smart Classification
 
 Before planning, the goal is classified using the `Classifier` engine:
 
-- **Tier 1: Rule-based fast regex filter** (e.g. documentation updates, version updates, single variable renames).
-- **Tier 2: Complexity heuristics** (number of files affected, keywords like `optimize` or `refactor`).
+- **Tier 1: Rule-based fast regex filter**: Identifies simple goals (documentation updates, version updates, single variable renames).
+- **Tier 2: Complexity heuristics**: Evaluates file count and keyword complexity (`refactor`, `optimize`, `security`).
 - **Paths**:
-  - **Single-Agent Path**: Bypasses full planning and spawns a single agent session.
-  - **Full-Loop Path**: Performs full multi-agent code graph planning, execution, and verification.
+  - **Single-Agent Path**: Fast-tracks execution through a single engineer agent session.
+  - **Full-Loop Path**: Performs full multi-agent DAG planning, execution, and verification.
 
 ---
 
 ## Structured Goal Planning
 
-For full-loop goals, the `PlannerAgent` decomposes the goal into a Directed Acyclic Graph (DAG) of task contracts. The tasks match the TS `Task` interface:
+For full-loop goals, `PlannerAgent` decomposes the goal into a Directed Acyclic Graph (DAG) of task nodes.
 
-```typescript
-export interface Task {
-  id: string;
-  description: string;
-  goal: string;
-  category: 'test' | 'docs' | 'security' | 'refactor' | 'feature' | 'fix' | 'other';
-  systemPrompt: string;
-  expectedOutputs: string[];
-  writeAllowlist: string[];
-  verification: VerificationStep[];
-  maxCost: number;
-  timeout: number;
-  model?: string; // Optional static override
-}
-```
+### Topological Sorting & Batch Execution
 
-### Topological Sorting & Execution
-
-Tasks are intelligently grouped into non-conflicting batches using the `GitWorktreeScheduler`. It reads the `writeAllowlist` of each task and performs a topological sort. Tasks without overlapping files are executed concurrently using `Promise.all()` inside isolated Git worktrees. If conflicts arise, `mergeBranch()` utilizes the `EngineerAgent` to auto-resolve them.
+Tasks are grouped into non-conflicting batches using `GitWorktreeScheduler.topologicalSort()`. Tasks without overlapping `writeAllowlist` paths execute concurrently in isolated Git worktrees (`.loopcode/worktrees/`).
 
 ### Failure Evidence Injection
 
-When a task fails verification repeatedly and exhausts its retry limits, the orchestrator loops back to the `planning` stage. During this replan, the `ContextEngine` injects the detailed failure reports (compilation errors, test failures, or Reviewer notes) straight back into the `PlannerAgent`'s prompt. This allows the agent to self-correct the DAG structure based on what failed.
+When a task exhausts retries during verification, the orchestrator logs state transitions back to `planning`. The aggregated failure evidence (compilation errors, test failures, reviewer comments) is injected into `PlannerAgent` to generate an updated plan.
 
 ---
 
-## Dynamic Cascading Model Router
+## Catalog-Driven Dynamic Model Router (`src/router/dynamic.ts`)
 
-Instead of static routes, the `DynamicRouter` evaluates the optimal 2026 model based on four cascading tiers:
+The `DynamicRouter` resolves models dynamically based on user catalog capabilities (`setCatalog`):
 
-| Tier       | Rule Type             | Action                                                                                                                                         |
-| ---------- | --------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Tier 1** | Task Category         | Routes `refactor` and `security` to high-reasoning frontier models (`claude-4.8-opus`), and `docs`/`test` to fast models (`gemini-3.5-flash`). |
-| **Tier 2** | Complexity Classifier | Overrides model selections to stronger models if code change spans multiple modules.                                                           |
-| **Tier 3** | Budget Cap            | Downgrades selected models to cheaper alternatives if current goal spend is approaching the limit.                                             |
-| **Tier 4** | Cache Awareness       | Adjusts routing to benefit from prompt-caching models when the input context remains stable.                                                   |
-
-### Supported 2026 Portfolio
-
-- **Frontier / Strong**: `claude-4.8-opus`, `claude-5-sonnet`
-- **Efficient / Budget**: `gemini-3.5-flash`, `deepseek-v4-pro`
-
-### Live Overrides (Model Picker)
-
-During execution, users can press `Ctrl+M` to open the interactive model picker to dynamically change model mapping overrides, instantly updating `~/.loopcode/config.toml` without restarting the daemon.
+1. **Role & Task Category**: Maps planning/review tasks to frontier reasoning models (`claude-opus-4-6`) and execution/quickFix tasks to balanced/fast models (`claude-sonnet-4-6`, `gemini-3-flash`).
+2. **Complexity Escalation**: Escalates simple tasks to frontier models if multi-file dependencies are detected.
+3. **Budget Cap Downgrade**: Automatically falls back to cheaper models when goal spend approaches configured budget limits.
+4. **Prompt Cache Discounting**: Applies cost discounts for prompt-caching supported providers.
