@@ -1,3 +1,4 @@
+import { isTestEnv } from './platform/env.js';
 import { OpencodeOrchestrator } from './opencode.js';
 import { Verifier } from './verifier.js';
 import { Memory, TaskRecord } from './memory.js';
@@ -187,7 +188,7 @@ export class Orchestrator {
     console.log(`[Orchestrator] Starting goal with ID: ${taskId}`);
 
     // Ensure codebase is indexed before starting
-    if (!process.env.VITEST) {
+    if (!isTestEnv()) {
       await this.indexer.indexDirectory(process.cwd());
     }
 
@@ -207,7 +208,7 @@ export class Orchestrator {
   }
 
   runCommand(cmd: string): string {
-    if (process.env.VITEST && !cmd.includes('rev-parse')) {
+    if (isTestEnv() && !cmd.includes('rev-parse')) {
       return '';
     }
     return execSync(cmd, { stdio: 'pipe' }).toString().trim();
@@ -269,7 +270,7 @@ export class Orchestrator {
   private async promptUserForEscalation(taskId: string, reason: string): Promise<string> {
     console.warn(`
 ⚠️ ESCALATION: ${reason}`);
-    if (process.env.VITEST || !process.stdin.isTTY) {
+    if (isTestEnv() || !process.stdin.isTTY) {
       console.warn(`Non-interactive environment detected. Auto-aborting.`);
       return 'abort';
     }
@@ -417,7 +418,7 @@ Enter manual correction / guidance for the Planner:\
       plan = JSON.parse(record.plan_json);
     } else {
       try {
-        if (process.env.VITEST) {
+        if (isTestEnv()) {
           throw new Error('VITEST fallback');
         }
         const goalIR: GoalIR = {
@@ -540,7 +541,7 @@ Enter manual correction / guidance for the Planner:\
         const workerAgent = engineerAgents[index % numAgentsNeeded];
         let execIR;
         try {
-          if (process.env.VITEST) {
+          if (isTestEnv()) {
             throw new Error('VITEST fallback');
           }
 
@@ -646,7 +647,7 @@ Enter manual correction / guidance for the Planner:\
       currentBatch.map(async (currentTask) => {
         let report;
         try {
-          if (process.env.VITEST) {
+          if (isTestEnv()) {
             throw new Error('VITEST fallback');
           }
 
@@ -705,7 +706,7 @@ Enter manual correction / guidance for the Planner:\
       console.log(`[Orchestrator] [VERIFYING] Batch passed verification!`);
       const memoryEngine = new MemoryEngine(this.dbPath);
       for (const { currentTask } of reports) {
-        if (!process.env.VITEST) {
+        if (!isTestEnv()) {
           await this.worktreeScheduler.mergeBranch('main', `branch-${currentTask.id}`);
         }
         this.worktreeScheduler.removeWorktree(currentTask.id);

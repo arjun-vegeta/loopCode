@@ -1,3 +1,4 @@
+import { isTestEnv } from '../platform/env.js';
 import type { OpencodeClient } from '@opencode-ai/sdk';
 import type { TaskNode } from '../ir/task.js';
 import type { ExecutionIR, ExecutionStep } from '../ir/execution.js';
@@ -104,7 +105,7 @@ Please complete the task. Only write within your allowlist: ${taskNode.writeAllo
 
       // Get git commit hash after execution
       let commitAfter = commitBefore;
-      if (!process.env.VITEST) {
+      if (!isTestEnv()) {
         try {
           // Create an incremental commit representing the engineer modifications
           const statusOutput = execSync('git status --porcelain', { cwd: worktreePath || process.cwd() })

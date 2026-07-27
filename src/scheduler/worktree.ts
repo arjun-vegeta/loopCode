@@ -1,3 +1,4 @@
+import { isTestEnv } from '../platform/env.js';
 import { execSync } from 'child_process';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
@@ -19,7 +20,7 @@ export class GitWorktreeScheduler {
    * Creates a new Git worktree for sandboxed task execution.
    */
   createWorktree(taskId: string, baseBranch: string = 'main'): string {
-    if (process.env.VITEST) {
+    if (isTestEnv()) {
       return process.cwd();
     }
     const worktreePath = path.join(this.baseDir, `task-${taskId}`);
@@ -52,7 +53,7 @@ export class GitWorktreeScheduler {
    * Removes a Git worktree.
    */
   removeWorktree(taskId: string) {
-    if (process.env.VITEST) {
+    if (isTestEnv()) {
       return;
     }
     const worktreePath = path.join(this.baseDir, `task-${taskId}`);

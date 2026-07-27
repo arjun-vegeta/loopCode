@@ -1,3 +1,4 @@
+import { isTestEnv } from '../platform/env.js';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { execSync } from 'node:child_process';
@@ -16,7 +17,7 @@ export class ContextEngine {
   }
 
   async initializeLSP(projectRoot: string) {
-    if (process.env.VITEST) return;
+    if (isTestEnv()) return;
     if (this.lspInitialized) return;
     try {
       await this.lspClient.initialize(projectRoot);

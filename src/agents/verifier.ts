@@ -1,3 +1,4 @@
+import { isTestEnv } from '../platform/env.js';
 import type { TaskNode } from '../ir/task.js';
 import type { ExecutionIR } from '../ir/execution.js';
 import type { VerificationIR, VerificationLayer, Regression } from '../ir/verification.js';
@@ -82,7 +83,7 @@ export class VerifierAgent {
     let testEvidence = 'No unit tests run.';
 
     // Check if test script exists or requested
-    if (!process.env.VITEST) {
+    if (!isTestEnv()) {
       try {
         const res = execSync('npm run test', { cwd: worktreePath }).toString();
         testEvidence = res;
@@ -127,7 +128,7 @@ export class VerifierAgent {
     let securityPassed = true;
     let securityEvidence = 'Security check clean.';
     try {
-      if (!process.env.VITEST) {
+      if (!isTestEnv()) {
         // Attempt external scanner (semgrep / trivy) if available
         try {
           // Attempt Semgrep

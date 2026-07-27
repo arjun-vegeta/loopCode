@@ -1,30 +1,36 @@
 import { describe, it, expect, mock, beforeEach } from 'bun:test';
-
 import { OpencodeOrchestrator } from '../src/opencode.js';
-
-process.env.VITEST = '1';
 
 describe('OpencodeOrchestrator', () => {
   beforeEach(() => {
     mock.clearAllMocks();
   });
 
-  it('throws an error if no auth/provider is configured', async () => {
+  it('returns auth status from getAuthStatus() without throwing on initialize()', async () => {
     const mockClient = {
-      config: {
-        providers: mock().mockResolvedValue({
+      provider: {
+        list: mock().mockResolvedValue({
           data: {
             default: {},
-            providers: [],
+            connected: [],
+            all: [
+              {
+                id: 'anthropic',
+                name: 'Anthropic',
+                env: ['ANTHROPIC_API_KEY'],
+              },
+            ],
           },
         }),
       },
     } as any;
     const mockServer = { close: mock() } as any;
 
-    await expect(OpencodeOrchestrator.initialize(undefined, mockClient, mockServer)).rejects.toThrow(
-      /No LLM provider configured/,
-    );
+    const orchestrator = await OpencodeOrchestrator.initialize(undefined, mockClient, mockServer);
+    const status = await orchestrator.getAuthStatus();
+
+    expect(status.authenticated).toBe(false);
+    expect(status.connected).toEqual([]);
   });
 
   it('times out and aborts if prompt takes too long', async () => {
@@ -37,11 +43,12 @@ describe('OpencodeOrchestrator', () => {
     });
 
     const mockClient = {
-      config: {
-        providers: mock().mockResolvedValue({
+      provider: {
+        list: mock().mockResolvedValue({
           data: {
             default: { model: 'anthropic/claude' },
-            providers: [{ state: 'ready' }],
+            connected: ['anthropic'],
+            all: [],
           },
         }),
       },
