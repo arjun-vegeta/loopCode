@@ -5,6 +5,9 @@
   "bin": {
     "loopcode": "dist/index.js"
   },
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "build": "tsc",
     "typecheck": "tsc -p tsconfig.test.json",
@@ -13,12 +16,21 @@
     "lint": "eslint .",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "package": "./package.sh"
+    "package": "./package.sh",
+    "prepublishOnly": "npm run build && npm run typecheck && npm run lint && npm run test"
   },
-  "keywords": [],
+  "keywords": [
+    "loopcode",
+    "ai",
+    "agent",
+    "orchestrator",
+    "opencode",
+    "cli",
+    "tui"
+  ],
   "author": "",
   "license": "ISC",
-  "description": "",
+  "description": "Autonomous software engineering orchestrator built on top of OpenCode",
   "dependencies": {
     "@opencode-ai/sdk": "^1.17.13",
     "commander": "^15.0.0",
