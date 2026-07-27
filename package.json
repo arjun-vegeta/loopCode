@@ -4,7 +4,7 @@
   "main": "index.js",
   "scripts": {
     "build": "tsc",
-    "test": "for file in tests/*.test.ts; do bun test $file || exit 1; done",
+    "test": "bun test",
     "lint": "eslint .",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
@@ -44,6 +44,7 @@
     "bun-types": "latest",
     "eslint": "^9.39.4",
     "eslint-config-prettier": "^10.1.8",
+    "ink-testing-library": "^4.0.0",
     "prettier": "^3.9.4",
     "typescript-eslint": "^8.62.1"
   }

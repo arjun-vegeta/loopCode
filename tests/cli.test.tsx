@@ -4,7 +4,10 @@ import { detectTerminal } from '../src/cli/terminal-setup.js';
 import { renderDiff } from '../src/cli/diff.js';
 import { Memory } from '../src/memory.js';
 import { getPermissionMode, setPermissionMode } from '../src/cli/state.js';
-import { StatusBar } from '../src/cli/components/StatusBar.js';
+import { LiveStatus } from '../src/cli/components/LiveStatus.js';
+import { render } from 'ink-testing-library';
+import { ThemeProvider } from '../src/cli/theme-context.js';
+import { buildTheme } from '../src/cli/theme.js';
 import React from 'react';
 import * as fs from 'node:fs';
 
@@ -136,22 +139,33 @@ describe('LoopCode v3 CLI Features', () => {
     });
   });
 
-  describe('StatusBar Component with Cost Telemetry', () => {
-    it('renders budget progress bar correctly based on cost props', () => {
-      const cost = { spent: 2.5, limit: 10.0 };
-      const element = StatusBar({ cost });
-      expect(element).toBeDefined();
+  describe('LiveStatus Component', () => {
+    const theme = buildTheme({ mode: 'dark', ascii: false });
 
-      const outerChildren = React.Children.toArray(element.props.children);
-      const innerBox = outerChildren[0] as React.ReactElement;
-      const innerChildren = React.Children.toArray(innerBox.props.children);
-      const rightSideBox = innerChildren[1] as React.ReactElement;
-      expect(rightSideBox).toBeDefined();
+    it('renders LiveStatus correctly when active', () => {
+      const { lastFrame } = render(
+        <ThemeProvider theme={theme}>
+          <LiveStatus
+            active={true}
+            phase="executing"
+            detail="batch 1/2"
+            startedAt={Date.now() - 5000}
+            cost={{ spentUsd: 2.5, limitUsd: 10.0 }}
+            quota={null}
+            interruptible={true}
+          />
+        </ThemeProvider>,
+      );
+      expect(lastFrame()).toContain('executing');
+    });
 
-      const barTextNode = React.Children.toArray(rightSideBox.props.children)[1];
-      // 25% budget spent should show a filled block representation
-      expect(barTextNode.props.children).toContain('█');
-      expect(barTextNode.props.children).toContain('░');
+    it('returns null when inactive', () => {
+      const { lastFrame } = render(
+        <ThemeProvider theme={theme}>
+          <LiveStatus active={false} phase="idle" interruptible={false} />
+        </ThemeProvider>,
+      );
+      expect(lastFrame()).toBe('');
     });
   });
 });
