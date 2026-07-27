@@ -113,7 +113,7 @@ export function App({ controller, needsOnboarding, initialGoal, resumeTaskId }: 
 
   // Single subscription; the controller owns all engine interaction.
   useEffect(() => {
-    const unsubscribe = controller.bus.subscribe((event) => {
+    const unsubscribe = controller.bus.subscribe((event: AppEvent) => {
       dispatch({ type: 'event', event });
       setStatus(controller.snapshot());
     });
