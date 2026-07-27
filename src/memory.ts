@@ -2,6 +2,7 @@ import { Database } from 'bun:sqlite';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { SCHEMA_SQL } from './db/schema.js';
+import { redact } from './app/redact.js';
 import type { VerificationReport } from './types.js';
 
 export interface TaskRecord {
@@ -115,7 +116,7 @@ export class Memory {
       INSERT INTO task_results (task_id, step_index, verification_json, cost, duration_ms)
       VALUES (?, ?, ?, ?, ?)
     `);
-    stmt.run(taskId, stepIndex, JSON.stringify(verification), cost, durationMs);
+    stmt.run(taskId, stepIndex, redact(JSON.stringify(verification)), cost, durationMs);
 
     const task = this.getTask(taskId);
     if (task) {

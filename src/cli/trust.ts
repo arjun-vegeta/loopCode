@@ -15,7 +15,20 @@ interface TrustedDir {
 // Temporary in-memory session trust store
 const sessionTrustedDirs = new Set<string>();
 
+export function isWarningDirectory(cwd: string): boolean {
+  const warnDirs = [join(homedir(), 'Desktop'), join(homedir(), 'Documents'), join(homedir(), 'Downloads')].map((d) =>
+    d.replace(/\\/g, '/').toLowerCase(),
+  );
+
+  const normalized = cwd.replace(/\\/g, '/').toLowerCase();
+  return warnDirs.some((w) => normalized === w || normalized.startsWith(w + '/'));
+}
+
 export function isDangerousDirectory(cwd: string): boolean {
+  if (isWarningDirectory(cwd)) {
+    return false;
+  }
+
   const dangerous = [
     '/',
     '/usr',

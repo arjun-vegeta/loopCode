@@ -1,5 +1,5 @@
 import type { OpencodeClient } from '@opencode-ai/sdk';
-import { EventBus } from './events.js';
+import { EventBus, type AppEvent } from './events.js';
 import type { LoopcodeConfig } from '../config/schema.js';
 import type { Catalog, ProviderInfo } from '../auth/provider-catalog.js';
 import { AuthService, type OAuthSession } from '../auth/auth-service.js';
@@ -92,7 +92,7 @@ export class SessionControllerImpl implements SessionController {
   }
 
   private setupEventSubscriptions(): void {
-    this.bus.subscribe((event) => {
+    this.bus.subscribe((event: AppEvent) => {
       switch (event.kind) {
         case 'phase':
           this.snapshotState.phase = event.phase;
@@ -104,7 +104,7 @@ export class SessionControllerImpl implements SessionController {
           }
           break;
         case 'task-state': {
-          const existing = this.snapshotState.tasks.get(event.taskId) || {
+          const existing: TaskSnapshot = this.snapshotState.tasks.get(event.taskId) || {
             id: event.taskId,
             title: event.title,
             batchIndex: event.batchIndex,
@@ -123,7 +123,7 @@ export class SessionControllerImpl implements SessionController {
           break;
         }
         case 'verification': {
-          const existing = this.snapshotState.verifications.get(event.taskId) || {
+          const existing: VerificationSnapshot = this.snapshotState.verifications.get(event.taskId) || {
             taskId: event.taskId,
             layers: [],
             overallPass: null,
