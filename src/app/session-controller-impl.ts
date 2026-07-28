@@ -4,6 +4,7 @@ import type { LoopcodeConfig } from '../config/schema.js';
 import type { Catalog, ProviderInfo } from '../auth/provider-catalog.js';
 import { AuthService, type OAuthSession } from '../auth/auth-service.js';
 import { startWebOnboarding } from '../auth/web-onboard.js';
+import { openBrowser } from '../auth/browser.js';
 import { AntigravityProxy } from '../proxy/antigravity.js';
 import { acceptRisk, hasAcceptedRisk } from '../proxy/consent.js';
 import { registerAntigravityProvider } from '../proxy/registration.js';
@@ -291,27 +292,117 @@ export class SessionControllerImpl implements SessionController {
 
     const spaceIdx = trimmed.indexOf(' ');
     const cmdName = (spaceIdx >= 0 ? trimmed.slice(1, spaceIdx) : trimmed.slice(1)).toLowerCase();
+    const cmdArgs = spaceIdx >= 0 ? trimmed.slice(spaceIdx + 1).trim() : '';
 
     switch (cmdName) {
+      // ── overlays ────────────────────────────────────────────────────────
       case 'tasks':
-      case 'verification':
-      case 'budget':
       case 'sessions':
       case 'help':
       case 'proxy':
         hooks.openOverlay(cmdName);
         break;
-      case 'clear':
-        this.snapshotState.tasks.clear();
-        this.snapshotState.verifications.clear();
+      case 'verify':
+      case 'verification':
+        hooks.openOverlay('verification');
         break;
-      case 'mode':
-        this.cyclePermissionMode();
+      case 'cost':
+      case 'budget':
+        hooks.openOverlay('budget');
+        break;
+
+      // ── auth ────────────────────────────────────────────────────────────
+      case 'auth':
+        await this.handleAuth(cmdArgs);
         break;
       case 'login':
         await this.refreshCatalog();
         hooks.openOverlay('proxy');
         break;
+      case 'logout':
+        await this.handleLogout(cmdArgs);
+        break;
+
+      // ── run / lifecycle ─────────────────────────────────────────────────
+      case 'run':
+        if (cmdArgs) {
+          await this.runGoal(cmdArgs);
+        } else {
+          this.emitNotice('warn', 'Usage: /run <goal>');
+        }
+        break;
+      case 'stop':
+        await this.interrupt();
+        break;
+      case 'resume':
+        if (cmdArgs) {
+          await this.resume(cmdArgs);
+        } else {
+          hooks.openOverlay('sessions');
+        }
+        break;
+      case 'pause':
+        this.emitNotice('info', 'Session paused. State preserved for /resume.');
+        await this.shutdown();
+        process.exit(0);
+        break;
+      case 'exit':
+        await this.shutdown();
+        process.exit(0);
+        break;
+
+      // ── editing ─────────────────────────────────────────────────────────
+      case 'clear':
+        this.snapshotState.tasks.clear();
+        this.snapshotState.verifications.clear();
+        break;
+      case 'mode':
+        if (cmdArgs) {
+          const valid = ['plan', 'acceptEdits', 'auto'] as const;
+          const match = valid.find((m) => m.toLowerCase() === cmdArgs.toLowerCase());
+          if (match) {
+            setPermissionMode(match);
+            this.emitNotice('info', `Permission mode set to '${match}'.`);
+          } else {
+            this.emitNotice('warn', `Invalid mode '${cmdArgs}'. Valid: plan, acceptEdits, auto`);
+          }
+        } else {
+          this.cyclePermissionMode();
+        }
+        break;
+      case 'rename':
+        if (cmdArgs && this.currentSessionId) {
+          this.renameSession(this.currentSessionId, cmdArgs);
+          this.emitNotice('info', `Session renamed to '${cmdArgs}'.`);
+        } else if (!cmdArgs) {
+          this.emitNotice('warn', 'Usage: /rename <name>');
+        } else {
+          this.emitNotice('warn', 'No active session to rename.');
+        }
+        break;
+      case 'diff':
+        this.handleDiff();
+        break;
+      case 'undo':
+        this.handleUndo();
+        break;
+
+      // ── info ────────────────────────────────────────────────────────────
+      case 'config':
+        this.handleConfig();
+        break;
+      case 'model':
+      case 'models':
+      case 'provider':
+        hooks.openOverlay('proxy');
+        break;
+      case 'doctor':
+        await this.handleDoctor();
+        break;
+      case 'terminal-setup':
+        this.emitNotice('info', 'Terminal keybinding setup is not yet implemented.');
+        break;
+
       default:
         this.bus.emit({
           kind: 'notice',
@@ -322,6 +413,134 @@ export class SessionControllerImpl implements SessionController {
         });
         break;
     }
+  }
+
+  private emitNotice(level: 'info' | 'warn' | 'error', text: string): void {
+    this.bus.emit({ kind: 'notice', id: crypto.randomUUID(), at: Date.now(), level, text });
+  }
+
+  private async handleAuth(subcommand: string): Promise<void> {
+    const sub = subcommand.toLowerCase();
+
+    if (sub === 'status' || sub === '') {
+      const cat = await this.refreshCatalog();
+      const connected = cat.providers.filter((p) => p.connected).map((p) => p.name);
+      const envReady = cat.providers.filter((p) => p.envSatisfied && !p.connected).map((p) => p.name);
+      const lines: string[] = [];
+      if (connected.length > 0) lines.push(`Connected: ${connected.join(', ')}`);
+      else lines.push('No providers connected.');
+      if (envReady.length > 0) lines.push(`Env-ready (not yet connected): ${envReady.join(', ')}`);
+      if (this.config.model?.default) lines.push(`Active model: ${this.config.model.default}`);
+      this.emitNotice('info', lines.join('\n'));
+    } else if (sub === 'web') {
+      try {
+        const handle = await this.startWebOnboarding();
+        const opened = openBrowser(handle.url);
+        const msg = opened
+          ? `Web onboarding opened in browser: ${handle.url}`
+          : `Open this URL in your browser: ${handle.url}`;
+        this.emitNotice('info', msg);
+        handle.stop();
+      } catch (err) {
+        this.emitNotice('error', `Web onboarding failed: ${(err as Error).message}`);
+      }
+    } else if (sub === 'cli') {
+      this.emitNotice('info', 'Run the following command in a separate terminal:\n  opencode auth login');
+    } else {
+      this.emitNotice('warn', 'Usage: /auth status|cli|web');
+    }
+  }
+
+  private async handleLogout(providerId: string): Promise<void> {
+    if (!providerId) {
+      this.emitNotice('warn', 'Usage: /logout <provider>');
+      return;
+    }
+    try {
+      await this.client.auth.set({
+        path: { id: providerId },
+        body: { type: 'api', key: '' },
+      });
+      await this.refreshCatalog();
+      this.emitNotice('info', `Logged out of ${providerId}. Credentials removed.`);
+    } catch (err) {
+      this.emitNotice('error', `Logout failed for ${providerId}: ${(err as Error).message}`);
+    }
+  }
+
+  private handleDiff(): void {
+    const result = git(['diff', '--stat']);
+    if (result.ok) {
+      const output = result.stdout.trim();
+      this.emitNotice('info', output || 'No changes in working tree.');
+    } else {
+      this.emitNotice('error', `git diff failed: ${result.stderr}`);
+    }
+  }
+
+  private handleUndo(): void {
+    // Check if HEAD is a loopcode commit before resetting
+    const logResult = git(['log', '-1', '--format=%s']);
+    if (!logResult.ok) {
+      this.emitNotice('error', 'Could not read git log.');
+      return;
+    }
+    const subject = logResult.stdout.trim();
+    if (!subject.toLowerCase().startsWith('loopcode:')) {
+      this.emitNotice('warn', `HEAD commit is not a LoopCode commit: "${subject}". Undo aborted.`);
+      return;
+    }
+    const resetResult = git(['reset', '--soft', 'HEAD~1']);
+    if (resetResult.ok) {
+      this.emitNotice('info', `Undid commit: "${subject}". Changes are staged.`);
+    } else {
+      this.emitNotice('error', `git reset failed: ${resetResult.stderr}`);
+    }
+  }
+
+  private handleConfig(): void {
+    const cfg = this.config;
+    const lines = [
+      `Model default: ${cfg.model?.default ?? '(not set)'}`,
+      `Budget goal: $${cfg.budget.maxGoalCostUsd} / month: $${cfg.budget.maxMonthlyCostUsd}`,
+      `Proxy enabled: ${cfg.proxy.enabled}, port: ${cfg.proxy.port}`,
+      `Permission mode: ${getPermissionMode()}`,
+    ];
+    this.emitNotice('info', lines.join('\n'));
+  }
+
+  private async handleDoctor(): Promise<void> {
+    const lines: string[] = ['=== LoopCode Doctor ==='];
+
+    // Auth status
+    try {
+      const cat = await this.refreshCatalog();
+      const connected = cat.providers.filter((p) => p.connected);
+      lines.push(`Auth: ${connected.length} provider(s) connected`);
+      for (const p of connected) lines.push(`  ✓ ${p.name}`);
+      if (connected.length === 0) lines.push('  ✗ No providers connected. Run /login or /auth web');
+    } catch {
+      lines.push('Auth: ✗ Could not load provider catalog');
+    }
+
+    // Git
+    const gitVersion = git(['--version']);
+    lines.push(`Git: ${gitVersion.ok ? gitVersion.stdout.trim() : '✗ not found'}`);
+
+    // Proxy
+    try {
+      const ps = await this.proxyStatus();
+      lines.push(`Proxy: ${ps.running ? '✓ running' : '✗ not running'}${ps.healthy ? ' (healthy)' : ''}`);
+    } catch {
+      lines.push('Proxy: ✗ status check failed');
+    }
+
+    // Environment
+    lines.push(`Node: ${process.version}`);
+    lines.push(`Platform: ${process.platform} ${process.arch}`);
+    lines.push(`CWD: ${process.cwd()}`);
+
+    this.emitNotice('info', lines.join('\n'));
   }
 
   // ── auth ───────────────────────────────────────────────────────────────
