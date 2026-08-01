@@ -208,7 +208,6 @@ document.addEventListener('DOMContentLoaded', () => {
   const phaseTxt = document.getElementById('tui-phase-txt');
   const detailTxt = document.getElementById('tui-detail-txt');
   const costTxt = document.getElementById('tui-cost-txt');
-  const composerInput = document.getElementById('tui-composer-input');
 
   const simIndicator = document.getElementById('tui-sim-indicator');
   const ctrlSimToggle = document.getElementById('ctrl-sim-toggle');

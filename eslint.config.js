@@ -7,7 +7,7 @@ export default [
   ...tseslint.configs.recommended,
   eslintConfigPrettier,
   {
-    ignores: ['dist/**', 'node_modules/**', 'build_docs/**'],
+    ignores: ['dist/**', 'node_modules/**', 'build_docs/**', 'website/**'],
   },
   {
     rules: {
